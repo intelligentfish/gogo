@@ -2,13 +2,9 @@ package app
 
 import (
 	"github.com/golang/glog"
-	"github.com/intelligentfish/gogo/event"
-	"github.com/intelligentfish/gogo/event_bus"
-	"github.com/intelligentfish/gogo/priority_define"
-	"github.com/intelligentfish/gogo/routine_pool"
+	"github.com/intelligentfish/gogo/auto_lock"
 	"os"
 	"os/signal"
-	"reflect"
 	"sync"
 	"syscall"
 )
@@ -24,10 +20,15 @@ var (
 
 // App 应用
 type App struct {
-	PID        int
-	isShutdown bool
-	signalCh   chan os.Signal
+	auto_lock.AutoLock
+	PID           int
+	isShutdown    bool
+	signalCh      chan os.Signal
+	shutdownHooks []ShutdownHook
 }
+
+// 关闭钩子
+type ShutdownHook func()
 
 // newApp 工厂方法
 func newApp() *App {
@@ -39,11 +40,21 @@ func newApp() *App {
 
 // notifyShutdown 通知关闭
 func (object *App) notifyShutdown() {
-	for priority := priority_define.ShutdownPriorityMax; priority >= priority_define.ShutdownPriorityUnknown; priority-- {
-		glog.Errorf("notify priority: %d component shutdown", priority)
-		event := &event.AppShutdownEvent{ShutdownPriority: priority}
-		event_bus.GetInstance().SyncNotify(reflect.TypeOf(event), event)
-	}
+	object.WithLock(true, func() {
+		for _, hook := range object.shutdownHooks {
+			if nil != hook {
+				hook()
+			}
+		}
+	})
+}
+
+// AddShutdownHook 添加关闭钩子
+func (object *App) AddShutdownHook(hook ShutdownHook) *App {
+	object.WithLock(false, func() {
+		object.shutdownHooks = append(object.shutdownHooks, hook)
+	})
+	return object
 }
 
 // Shutdown 关闭
@@ -70,11 +81,7 @@ func (object *App) WaitShutdown() {
 			object.isShutdown = true
 			object.notifyShutdown()
 			close(object.signalCh)
-
-			event_bus.GetInstance().Stop()    // 停止事件总线
-			routine_pool.GetInstance().Stop() // 停止协程池
-			os.Exit(ExitOK)                   // 退出进程
-
+			os.Exit(ExitOK) // 退出进程
 		default:
 			glog.Errorf("signal: %v, not handled", s)
 		}

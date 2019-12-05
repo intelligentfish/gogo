@@ -41,6 +41,9 @@ func (object *BlockChanNode) CalcHash() (err error) {
 
 // CompareTo 比较
 func (object *BlockChanNode) CompareTo(other interface{}) int {
+	if object == object {
+		return 0
+	}
 	return int(object.Index - other.(*BlockChanNode).Index)
 }
 
