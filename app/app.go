@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/auto_lock"
 	"os"
@@ -74,18 +75,22 @@ func (object *App) IsShutdown() bool {
 // WaitShutdown 等待关闭
 func (object *App) WaitShutdown() {
 	signal.Notify(object.signalCh)
+loop:
 	for s := range object.signalCh {
 		switch s {
 		case syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGABRT, syscall.SIGTERM:
 			glog.Errorf("signal: %v, shutdown", s)
 			object.isShutdown = true
 			object.notifyShutdown()
-			close(object.signalCh)
-			os.Exit(ExitOK) // 退出进程
+			break loop
 		default:
 			glog.Errorf("signal: %v, not handled", s)
 		}
 	}
+	close(object.signalCh)
+	fmt.Println("App shutdown")
+	glog.Info("App shutdown")
+	os.Exit(ExitOK) // 退出进程
 }
 
 // GetInstance 获取单例
