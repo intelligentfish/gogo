@@ -124,7 +124,7 @@ loop:
 				wg.Add(len(object.otherNodeAddresses))
 				for _, address := range object.otherNodeAddresses {
 					apiURL := fmt.Sprintf("http://%s%s", address, "/api/v1/vote")
-					routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+					routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 						defer wg.Done()
 						values := url.Values{}
 						values.Add("from", object.myAddress)
@@ -159,7 +159,7 @@ loop:
 				wg.Add(len(object.followerAddresses))
 				for _, address := range object.followerAddresses {
 					apiURL := fmt.Sprintf("http://%s%s", address, "/api/v1/heartbeat")
-					routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+					routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 						defer wg.Done()
 						values := url.Values{}
 						values.Add("from", object.myAddress)
@@ -326,13 +326,13 @@ func (object *Node) Start() {
 		Addr:    object.myAddress,
 		Handler: engine,
 	}
-	routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 		if err := srv.ListenAndServe(); nil != err && http.ErrServerClosed != err {
 			glog.Error(err)
 		}
 		return nil
 	}, "RaftWebApi")
-	routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 		object.switchState()
 		return nil
 	}, "RaftSwitchState")

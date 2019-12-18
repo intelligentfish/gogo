@@ -45,7 +45,7 @@ func (object *ServiceRegisterDiscovery) RunAsServer(onlineHook func(key, value [
 	offlineHook func(key []byte)) {
 	var wg sync.WaitGroup
 	wg.Add(1)
-	routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 		defer wg.Done()
 		object.xetcd.WatchPrefix(context.TODO(), object.servicePrefix, func(event *clientv3.Event) {
 			switch event.Type {

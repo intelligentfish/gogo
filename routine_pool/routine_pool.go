@@ -29,6 +29,7 @@ var (
 type Runnable interface {
 	GetID() string                        // ID
 	GetParams() []interface{}             // 获取参数
+	GetCtx() context.Context              // 获取上下文
 	Run(params []interface{}) interface{} // 执行
 }
 
@@ -36,17 +37,20 @@ type Runnable interface {
 type DefaultRunnable struct {
 	ID     int64
 	Name   string
-	Method func(params []interface{}) interface{}
+	Method func(ctx context.Context, params []interface{}) interface{}
 	Params []interface{}
+	Ctx    context.Context
 }
 
 // NewDefaultRunnable 实例化默认执行体
-func NewDefaultRunnable(taskMethod func(params []interface{}) interface{},
+func NewDefaultRunnable(ctx context.Context,
+	taskMethod func(ctx context.Context, params []interface{}) interface{},
 	taskName string,
 	taskParam []interface{}) *DefaultRunnable {
 	object := &DefaultRunnable{
 		Method: taskMethod,
 		Params: taskParam,
+		Ctx:    ctx,
 	}
 	object.ID = atomic.AddInt64(&nextRunnableID, 1)
 	object.Name = taskName
@@ -61,14 +65,19 @@ func (object *DefaultRunnable) GetID() string {
 	return fmt.Sprintf(`%s-%d`, object.Name, object.ID)
 }
 
-// Run 执行
-func (object *DefaultRunnable) Run(params []interface{}) interface{} {
-	return object.Method(params)
-}
-
 // GetParams 获取参数
 func (object *DefaultRunnable) GetParams() []interface{} {
 	return object.Params
+}
+
+// GetCtx 获取上下文
+func (object *DefaultRunnable) GetCtx() context.Context {
+	return object.Ctx
+}
+
+// Run 执行
+func (object *DefaultRunnable) Run(params []interface{}) interface{} {
+	return object.Method(object.Ctx, params)
 }
 
 // 字符串描述
@@ -157,10 +166,10 @@ func (object *RoutinePool) PostRunnable(runnable Runnable) (err error) {
 }
 
 // PostTask 提交任务
-func (object *RoutinePool) PostTask(task func(params []interface{}) interface{},
+func (object *RoutinePool) PostTask(task func(ctx context.Context, params []interface{}) interface{},
 	taskName string,
 	params ...interface{}) (err error) {
-	return object.PostRunnable(NewDefaultRunnable(task, taskName, params))
+	return object.PostRunnable(NewDefaultRunnable(object.ctx, task, taskName, params))
 }
 
 // 是否已经停止

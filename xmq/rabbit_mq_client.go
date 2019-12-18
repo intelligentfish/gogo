@@ -1,6 +1,7 @@
 package xmq
 
 import (
+	"context"
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/event"
 	"github.com/intelligentfish/gogo/event_bus"
@@ -35,7 +36,7 @@ func newRabbitMQClient() *RabbitMQClient {
 func (object *RabbitMQClient) waitDisconnectAndReconnect() {
 	receiver := make(chan *amqp.Error, 1)
 	object.Conn.NotifyClose(receiver)
-	routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 		var closed bool
 		select {
 		case _, closed = <-receiver:
@@ -58,7 +59,7 @@ func (object *RabbitMQClient) initialize(force bool) (err error) {
 	if force {
 		// 连接没有建立
 		if nil == object.Conn {
-			routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+			routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 				time.Sleep(100 * time.Millisecond)
 				object.initialize(true)
 				return nil

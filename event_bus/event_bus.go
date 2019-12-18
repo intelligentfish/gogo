@@ -3,7 +3,10 @@ package event_bus
 import (
 	"context"
 	"github.com/golang/glog"
+	"github.com/intelligentfish/gogo/event"
+	"github.com/intelligentfish/gogo/priority_define"
 	"github.com/intelligentfish/gogo/routine_pool"
+	"reflect"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -102,7 +105,7 @@ func (object *EventBus) wait() {
 			//退还资源
 			object.wg.Done()
 			//事件循环非正常退出
-			routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+			routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 				object.wait()
 				return nil
 			}, "EventBus")
@@ -140,7 +143,7 @@ func (object *EventBus) notify(notifiableArray []Notifiable, param interface{}) 
 // start 运行
 func (object *EventBus) start() {
 	for i := 0; i < EventBusWorkerSize; i++ {
-		routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+		routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 			object.wait()
 			return nil
 		}, "EventBus")
@@ -256,6 +259,13 @@ func (object *EventBus) SyncNotify(event, param interface{}) *EventBus {
 	}
 
 	return object
+}
+
+// 通知所有组件关闭
+func (object *EventBus) NotifyAllComponentShutdown() {
+	for p := priority_define.ShutdownPriorityMax; p > priority_define.ShutdownPriorityUnknown; p-- {
+		object.SyncNotify(reflect.TypeOf(&event.AppShutdownEvent{}), &event.AppShutdownEvent{p})
+	}
 }
 
 // GetInstance 获取单例

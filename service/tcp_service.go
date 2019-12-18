@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"github.com/golang/glog"
@@ -270,11 +271,11 @@ func (object *TCPSession) IsStopped() bool {
 func (object *TCPSession) Start() {
 	object.readWG.Add(1)
 	object.writeWG.Add(1)
-	routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 		object.read()
 		return nil
 	}, fmt.Sprintf(`TCPSession-%d Reader`, object.ID))
-	routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 		object.write()
 		return nil
 	}, fmt.Sprintf(`TCPSession-%d Writer`, object.ID))
@@ -367,7 +368,7 @@ func (object *TCPService) StartWithAddr(addr string) (err error) {
 		return
 	}
 
-	routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 		var c net.Conn
 		var err error
 		for {

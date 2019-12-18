@@ -112,7 +112,7 @@ func (object *ApolloClient) Start() {
 
 			glog.Info("ApolloClient done")
 		})
-	routine_pool.GetInstance().PostTask(func(params []interface{}) interface{} {
+	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
 		defer wg.Done()
 
 	loop:

@@ -51,9 +51,9 @@ func (object *App) notifyShutdown() {
 }
 
 // AddShutdownHook 添加关闭钩子
-func (object *App) AddShutdownHook(hook ShutdownHook) *App {
+func (object *App) AddShutdownHook(hook ...ShutdownHook) *App {
 	object.WithLock(false, func() {
-		object.shutdownHooks = append(object.shutdownHooks, hook)
+		object.shutdownHooks = append(object.shutdownHooks, hook...)
 	})
 	return object
 }
