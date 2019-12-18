@@ -90,7 +90,7 @@ func (object *ApolloClient) Initialize(configServerAddr,
 }
 
 // RegisterConfigChangeNotification 注册配置改变事件
-func (object *ApolloClient) RegisterConfigChangeNotification(callback func(param interface{})) {
+func (object *ApolloClient) RegisterConfigChangeNotification(callback func(ctx context.Context, param interface{})) {
 	event_bus.GetInstance().Mounting(reflect.TypeOf(&ConfigChangeNotification{}), callback)
 }
 
@@ -101,20 +101,17 @@ func (object *ApolloClient) Start() {
 	wg.Add(1)
 	event_bus.GetInstance().MountingOnce(reflect.TypeOf(&event.AppShutdownEvent{}),
 		"ApolloClient",
-		func(param interface{}) {
+		func(ctx context.Context, param interface{}) {
 			if priority_define.ConfigClientShutdownPriority !=
 				param.(*event.AppShutdownEvent).ShutdownPriority {
 				return
 			}
-
 			cancel()
 			wg.Wait()
-
 			glog.Info("ApolloClient done")
 		})
-	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().PostTask(func(_ context.Context, params []interface{}) interface{} {
 		defer wg.Done()
-
 	loop:
 		for {
 			select {
@@ -126,11 +123,9 @@ func (object *ApolloClient) Start() {
 					glog.Error(err)
 					continue
 				}
-
 				if nil == ccn {
 					continue
 				}
-
 				event_bus.GetInstance().SyncNotify(reflect.TypeOf(&ConfigChangeNotification{}), ccn)
 			}
 		}

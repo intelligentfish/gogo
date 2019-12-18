@@ -62,14 +62,13 @@ func (object *ServiceRegisterDiscovery) RunAsServer(onlineHook func(key, value [
 		return nil
 	}, "ServiceRegisterDiscovery")
 	event_bus.GetInstance().Mounting(reflect.TypeOf(&event.AppShutdownEvent{}),
-		func(param interface{}) {
+		func(ctx context.Context, param interface{}) {
 			if priority_define.ServiceRegisterDiscoveryPriority !=
 				param.(*event.AppShutdownEvent).ShutdownPriority {
 				return
 			}
 			object.shutdown()
 			wg.Wait()
-
 			glog.Info("ServiceRegisterDiscovery shutdown")
 		})
 }

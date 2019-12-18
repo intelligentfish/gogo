@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"github.com/buaazp/fasthttprouter"
 	"github.com/golang/glog"
@@ -43,12 +44,11 @@ func NewHTTPService(config *HTTPServiceConfig) *HTTPService {
 	}
 	event_bus.GetInstance().MountingOnce(reflect.TypeOf(&event.AppShutdownEvent{}),
 		"HTTPServiceConfig",
-		func(param interface{}) {
+		func(ctx context.Context, param interface{}) {
 			if priority_define.HTTPServiceShutdownPriority !=
 				param.(*event.AppShutdownEvent).ShutdownPriority {
 				return
 			}
-
 			object.Shutdown()
 			glog.Info("HTTPService done")
 		})

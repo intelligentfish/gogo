@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/app_cfg"
@@ -62,14 +63,13 @@ func (object *MongoDB) InitializeWithTimeout(timeout time.Duration) (err error) 
 		object.session.SetPoolLimit(defaultPoolSizeLimit)
 		event_bus.GetInstance().MountingOnce(reflect.TypeOf(&event.AppShutdownEvent{}),
 			"MongoDB",
-			func(param interface{}) {
-				if priority_define.DBShutdownPriority != param.(*event.AppShutdownEvent).ShutdownPriority {
+			func(ctx context.Context, param interface{}) {
+				if priority_define.DBShutdownPriority !=
+					param.(*event.AppShutdownEvent).ShutdownPriority {
 					return
 				}
-
 				object.wg.Wait()
 				object.session.Close()
-
 				glog.Info("MongoDB done")
 			}).SyncNotify(reflect.TypeOf(&event.MongoDBInitializeEvent{}),
 			&event.MongoDBInitializeEvent{}) // 通知数据库初始化完成

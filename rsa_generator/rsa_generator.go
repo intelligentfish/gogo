@@ -32,16 +32,14 @@ func newRSAGenerator(chanSize, rsaKeySize int) *RSAGenerator {
 	object := &RSAGenerator{ch: make(chan *xrsa.RSA, chanSize)}
 	object.ctx, object.cancel = context.WithCancel(context.Background())
 	event_bus.GetInstance().Mounting(reflect.TypeOf(&event.AppShutdownEvent{}),
-		func(param interface{}) {
+		func(ctx context.Context, param interface{}) {
 			if priority_define.RSAGeneratorShutdownPriority !=
 				param.(*event.AppShutdownEvent).ShutdownPriority {
 				return
 			}
-
 			object.cancel()
 			object.wg.Wait()
 			close(object.ch)
-
 			glog.Info("RSAGenerator done")
 		})
 	concurrency := runtime.NumCPU() / 2

@@ -14,5 +14,6 @@ const (
 	HTTPServiceShutdownPriority      // HTTP服务优先级
 	TCPServiceShutdownPriority       // TCP服务优先级
 	ConfigClientShutdownPriority     // 配置客户端优先级
+	HealthCheckerPriority            // 健康检查器优先级
 	ShutdownPriorityMax              // 最高优先级
 )

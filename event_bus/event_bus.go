@@ -28,19 +28,19 @@ type Notifiable interface {
 	// 获取Key
 	GetKey() string
 	// 通知
-	Notify(param interface{})
+	Notify(ctx context.Context, param interface{})
 }
 
 // DefaultNotifiable 可通知接口默认实现
 type DefaultNotifiable struct {
-	Key      string                  // key
-	callback func(param interface{}) // 回调
+	Key      string                                       // key
+	callback func(ctx context.Context, param interface{}) // 回调
 }
 
 // NewDefaultNotifiable 工厂方法
 func NewDefaultNotifiable(key string,
-	callback func(param interface{})) *DefaultNotifiable {
-	return &DefaultNotifiable{callback: callback}
+	callback func(ctx context.Context, param interface{})) *DefaultNotifiable {
+	return &DefaultNotifiable{Key: key, callback: callback}
 }
 
 // GetKey 获取Key
@@ -49,9 +49,9 @@ func (object *DefaultNotifiable) GetKey() string {
 }
 
 // completed 通知方法
-func (object *DefaultNotifiable) Notify(param interface{}) {
+func (object *DefaultNotifiable) Notify(ctx context.Context, param interface{}) {
 	if nil != object.callback {
-		object.callback(param)
+		object.callback(ctx, param)
 	}
 }
 
@@ -119,14 +119,14 @@ loop:
 			break loop
 		case notifyParam := <-object.notifyCh:
 			for _, notifiable := range notifyParam.NotifiableArray {
-				notifiable.Notify(notifyParam.Param)
+				notifiable.Notify(object.ctx, notifyParam.Param)
 			}
 		}
 	}
 	for 0 != len(object.notifyCh) {
 		notifyParam := <-object.notifyCh
 		for _, notifiable := range notifyParam.NotifiableArray {
-			notifiable.Notify(notifyParam.Param)
+			notifiable.Notify(object.ctx, notifyParam.Param)
 		}
 	}
 	object.wg.Done()
@@ -158,7 +158,7 @@ func (object *EventBus) Stop() {
 	for 0 != len(object.notifyCh) {
 		notifyParam := <-object.notifyCh
 		for _, notifiable := range notifyParam.NotifiableArray {
-			notifiable.Notify(notifyParam.Param)
+			notifiable.Notify(object.ctx, notifyParam.Param)
 		}
 	}
 	close(object.notifyCh)
@@ -167,7 +167,7 @@ func (object *EventBus) Stop() {
 // Mounting 挂载一次
 func (object *EventBus) MountingOnce(event interface{},
 	uniqueKey string,
-	callback func(param interface{})) *EventBus {
+	callback func(ctx context.Context, param interface{})) *EventBus {
 	object.Lock()
 	var notifiableArray []Notifiable
 	if v, ok := object.eventGroup[event]; !ok {
@@ -194,7 +194,7 @@ func (object *EventBus) MountingOnce(event interface{},
 
 // Mounting 挂载
 func (object *EventBus) Mounting(event interface{},
-	callback func(param interface{})) *EventBus {
+	callback func(ctx context.Context, param interface{})) *EventBus {
 	return object.MountingOnce(event, "", callback)
 }
 
@@ -254,7 +254,7 @@ func (object *EventBus) SyncNotify(event, param interface{}) *EventBus {
 	object.RUnlock()
 	if nil != notifiableArray && 0 != len(notifiableArray) {
 		for _, notifiable := range notifiableArray {
-			notifiable.Notify(param)
+			notifiable.Notify(object.ctx, param)
 		}
 	}
 

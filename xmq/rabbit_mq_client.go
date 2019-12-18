@@ -69,16 +69,15 @@ func (object *RabbitMQClient) initialize(force bool) (err error) {
 
 		event_bus.GetInstance().MountingOnce(reflect.TypeOf(&event.AppShutdownEvent{}),
 			"RabbitMQClient",
-			func(param interface{}) {
-				if priority_define.MQShutdownPriority != param.(*event.AppShutdownEvent).ShutdownPriority {
+			func(ctx context.Context, param interface{}) {
+				if priority_define.MQShutdownPriority !=
+					param.(*event.AppShutdownEvent).ShutdownPriority {
 					return
 				}
-
 				if nil != object.Conn {
 					object.Conn.Close()
 					object.Conn = nil
 				}
-
 				glog.Info("RabbitMQClient done")
 			})
 		// 重连
@@ -94,16 +93,15 @@ func (object *RabbitMQClient) Initialize(url string) (err error) {
 	if nil == err {
 		event_bus.GetInstance().MountingOnce(reflect.TypeOf(&event.AppShutdownEvent{}),
 			"RabbitMQClient",
-			func(param interface{}) {
-				if priority_define.MQShutdownPriority != param.(*event.AppShutdownEvent).ShutdownPriority {
+			func(ctx context.Context, param interface{}) {
+				if priority_define.MQShutdownPriority !=
+					param.(*event.AppShutdownEvent).ShutdownPriority {
 					return
 				}
-
 				if nil != object.Conn {
 					object.Conn.Close()
 					object.Conn = nil
 				}
-
 				glog.Info("RabbitMQClient done")
 			})
 		// 重连

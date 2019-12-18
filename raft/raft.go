@@ -337,7 +337,7 @@ func (object *Node) Start() {
 		return nil
 	}, "RaftSwitchState")
 	event_bus.GetInstance().Mounting(reflect.TypeOf(&event.AppShutdownEvent{}),
-		func(param interface{}) {
+		func(_ context.Context, param interface{}) {
 			if priority_define.HTTPServiceShutdownPriority !=
 				param.(*event.AppShutdownEvent).ShutdownPriority {
 				return

@@ -316,12 +316,11 @@ func NewTCPService() *TCPService {
 	object := &TCPService{}
 	event_bus.GetInstance().MountingOnce(reflect.TypeOf(&event.AppShutdownEvent{}),
 		"TCPService",
-		func(param interface{}) {
+		func(ctx context.Context, param interface{}) {
 			if priority_define.TCPServiceShutdownPriority !=
 				param.(*event.AppShutdownEvent).ShutdownPriority {
 				return
 			}
-
 			object.Stop()
 			glog.Info("TCPService done")
 		})

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/app_cfg"
@@ -43,9 +44,8 @@ func (object *MySQL) Initialize() (err error) {
 	if nil != err {
 		return
 	}
-
 	event_bus.GetInstance().Mounting(reflect.TypeOf(&event.AppShutdownEvent{}),
-		func(param interface{}) {
+		func(ctx context.Context, param interface{}) {
 			if priority_define.DBShutdownPriority != param.(*event.AppShutdownEvent).ShutdownPriority {
 				return
 			}
