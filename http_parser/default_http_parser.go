@@ -110,6 +110,7 @@ func (object *DefaultHTTPParser) Reset() {
 
 // Process 处理
 func (object *DefaultHTTPParser) Process(buf []byte) HTTPParserStatus {
+	//TODO
 	for {
 		switch object.machineState {
 		case MachineStateMethod:

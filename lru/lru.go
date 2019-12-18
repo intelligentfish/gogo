@@ -20,7 +20,7 @@ func NewLRU(maxSize int) *LRU {
 // tidy 整理
 func (object *LRU) tidy(key interface{}) {
 	for i := object.l.Header(); nil != i.Next; i = i.Next {
-
+		//TODO
 	}
 }
 
