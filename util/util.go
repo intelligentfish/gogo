@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 )
 
 // Hash
@@ -197,4 +198,20 @@ func EnsureDirExists(dirname string, mode os.FileMode) (err error) {
 		err = os.Mkdir(dirname, mode)
 	}
 	return
+}
+
+// ArrayToMap
+func ArrayToMap(arr []string, sep string) map[string][]string {
+	argsMap := make(map[string][]string)
+	for _, arg := range arr {
+		keyValue := strings.Split(arg, sep)
+		key := strings.TrimSpace(keyValue[0])
+		if 2 > len(keyValue) {
+			argsMap[key] = nil
+		} else if 2 == len(keyValue) {
+			value := strings.TrimSpace(keyValue[1])
+			argsMap[key] = append(argsMap[key], value)
+		}
+	}
+	return argsMap
 }

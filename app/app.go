@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/auto_lock"
+	"github.com/intelligentfish/gogo/util"
 	"os"
 	"os/signal"
 	"sync"
@@ -11,7 +12,8 @@ import (
 )
 
 const (
-	ExitOK = iota // 退出码成功
+	ExitOK     = iota // 退出码成功
+	DefaultSep = "="  // 默认命令行分隔符
 )
 
 var (
@@ -23,6 +25,7 @@ var (
 type App struct {
 	auto_lock.AutoLock
 	PID           int
+	ArgsMap       map[string][]string
 	isShutdown    bool
 	signalCh      chan os.Signal
 	shutdownHooks []ShutdownHook
@@ -33,10 +36,12 @@ type ShutdownHook func()
 
 // newApp 工厂方法
 func newApp() *App {
-	return &App{
+	object := &App{
 		PID:      os.Getpid(),
 		signalCh: make(chan os.Signal, 1),
 	}
+	object.ArgsMap = util.ArrayToMap(os.Args, DefaultSep)
+	return object
 }
 
 // notifyShutdown 通知关闭
