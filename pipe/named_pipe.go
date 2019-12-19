@@ -1,3 +1,5 @@
+// +build !windows
+
 package pipe
 
 import (
@@ -15,8 +17,8 @@ type NamedPipe struct {
 	file   *os.File
 }
 
-// MakeNamedPipe 创建命名管道
-func MakeNamedPipe(name string, create bool) (object *NamedPipe, err error) {
+// NewNamedPipe 创建命名管道
+func NewNamedPipe(name string, create bool) (object *NamedPipe, err error) {
 	if create {
 		os.Remove(name)
 		if err = syscall.Mkfifo(name, 0666); nil != err {

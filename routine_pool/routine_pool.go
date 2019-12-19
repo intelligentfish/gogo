@@ -117,6 +117,7 @@ func (object *RoutinePool) doWork(task Runnable) {
 	defer func() {
 		if r := recover(); nil != r {
 			// 出Bug了，优雅关闭吧
+			glog.Error(r)
 			debug.PrintStack()
 			app.GetInstance().Shutdown()
 		}

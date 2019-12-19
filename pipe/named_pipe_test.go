@@ -1,3 +1,5 @@
+// +build !windows
+
 package pipe
 
 import (
@@ -17,9 +19,9 @@ func TestNamedPipe(t *testing.T) {
 	flag.Set("alsologtostderr", "true")
 	flag.Set("log_dir", "logs")
 
-	writeNamedPipe, err := MakeNamedPipe("4feac5ac-21fa-11ea-90a8-00155d0c5004", true)
+	writeNamedPipe, err := NewNamedPipe("4feac5ac-21fa-11ea-90a8-00155d0c5004", true)
 	util.PanicOnError(err)
-	readNamedPipe, err := MakeNamedPipe("5bde53cc-2206-11ea-b31d-00155d0c5004", true)
+	readNamedPipe, err := NewNamedPipe("5bde53cc-2206-11ea-b31d-00155d0c5004", true)
 	util.PanicOnError(err)
 
 	defer writeNamedPipe.Close()
@@ -31,9 +33,9 @@ func TestNamedPipe(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		writeNamedPipe, err := MakeNamedPipe("5bde53cc-2206-11ea-b31d-00155d0c5004", false)
+		writeNamedPipe, err := NewNamedPipe("5bde53cc-2206-11ea-b31d-00155d0c5004", false)
 		util.PanicOnError(err)
-		readNamedPipe, err := MakeNamedPipe("4feac5ac-21fa-11ea-90a8-00155d0c5004", false)
+		readNamedPipe, err := NewNamedPipe("4feac5ac-21fa-11ea-90a8-00155d0c5004", false)
 		util.PanicOnError(err)
 
 		defer writeNamedPipe.Close()
