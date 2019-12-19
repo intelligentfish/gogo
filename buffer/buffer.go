@@ -32,6 +32,12 @@ func (object *Buffer) growth(needSize int) *Buffer {
 	return object
 }
 
+// Initialize 初始化
+func (object *Buffer) Initialize(capacity int) *Buffer {
+	object.Internal = make([]byte, capacity)
+	return object
+}
+
 // IsEmpty 是否为空
 func (object *Buffer) IsEmpty() bool {
 	return object.readIndex == object.writeIndex

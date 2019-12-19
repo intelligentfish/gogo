@@ -7,7 +7,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/app_cfg"
 	"github.com/intelligentfish/gogo/auto_lock"
-	"github.com/intelligentfish/gogo/byte_buffer_pool"
+	"github.com/intelligentfish/gogo/buffer"
 	"github.com/intelligentfish/gogo/event"
 	"github.com/intelligentfish/gogo/event_bus"
 	"github.com/intelligentfish/gogo/fix_slice_pool"
@@ -151,12 +151,11 @@ func (object *TCPSession) NeedClose() bool {
 
 // 读
 func (object *TCPSession) read() {
-	var n, bodySize int
+	var n int
 	var err error
-	chunk := fix_slice_pool.GetFixSlicePoolInstance().BorrowSlice(8192)
-	cache := byte_buffer_pool.GetByteBufferPoolInstance().BorrowByteBuffer()
+	readBuf := buffer.Pool.Get().(buffer.Buffer).Initialize(1 << 13)
 	for {
-		n, err = object.C.Read(chunk)
+		n, err = object.C.Read(readBuf.Internal[readBuf.GetReadIndex():])
 		if nil != err {
 			break
 		}
@@ -168,29 +167,28 @@ func (object *TCPSession) read() {
 		switch object.Mode {
 		// 块模式
 		case TCPSessionModeChunk:
-			cache.Write(chunk[:n])
-			for 4 <= cache.Len() {
-				if 0 == bodySize {
-					bodySize = int(binary.BigEndian.Uint32(cache.Next(4)))
-				}
-				if bodySize > cache.Len() {
+			readBuf.SetWriteIndex(readBuf.GetWriteIndex() + n)
+			for 4 <= readBuf.ReadableBytes() {
+				chunkSize := int(binary.BigEndian.Uint32(readBuf.Slice(4)))
+				if chunkSize+4 > readBuf.ReadableBytes() {
 					break
 				}
-				data := cache.Next(bodySize)
+				readBuf.SetReadIndex(readBuf.GetReadIndex() + 4)
 				object.WithLock(false,
 					func() {
 						for _, callback := range object.dataCallbackList {
-							callback(object, data)
+							callback(object, readBuf.Slice(chunkSize))
 						}
 					})
-				bodySize = 0
+				readBuf.SetReadIndex(readBuf.GetReadIndex() + chunkSize)
+				readBuf.DiscardReadBytes()
 			}
 		case TCPSessionModeStream:
 			// 流模式
 			object.WithLock(false,
 				func() {
 					for _, callback := range object.dataCallbackList {
-						callback(object, chunk[:n])
+						callback(object, readBuf.Slice(n))
 					}
 				})
 		}
@@ -204,8 +202,7 @@ func (object *TCPSession) read() {
 			}
 		})
 	}
-	fix_slice_pool.GetFixSlicePoolInstance().ReturnSlice(len(chunk), chunk)
-	byte_buffer_pool.GetByteBufferPoolInstance().ReturnByteBuffer(cache)
+	buffer.Pool.Put(readBuf.DiscardReadBytes())
 }
 
 // 写空
