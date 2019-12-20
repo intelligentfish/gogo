@@ -76,7 +76,7 @@ func (object *ReadWriterCloserUtil) Read(callback func(data []byte) bool) (err e
 	readBuf := buffer.Pool.Get().(*buffer.Buffer).Initialize(1 << 16)
 	var n int
 	for flag {
-		n, err = object.impl.Read(readBuf.Internal[readBuf.GetReadIndex():])
+		n, err = object.impl.Read(readBuf.Internal[readBuf.GetWriteIndex():])
 		if nil != err {
 			if io.EOF == err {
 				flag = false
@@ -84,7 +84,7 @@ func (object *ReadWriterCloserUtil) Read(callback func(data []byte) bool) (err e
 				return
 			}
 		}
-		if 0 == n {
+		if 0 >= n {
 			break
 		}
 		readBuf.SetWriteIndex(readBuf.GetWriteIndex() + n)
