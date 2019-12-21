@@ -22,10 +22,11 @@ func FromFd(readFd, writeFd int) *XCmd {
 	}
 	object.readPipe.SetReadPipe(os.NewFile(uintptr(readFd), "readPipe"))
 	object.writePipe.SetWritePipe(os.NewFile(uintptr(writeFd), "writePipe"))
+	object.nextFd = 5
 	return object
 }
 
-// New 工厂方法
+// NewXCmd 工厂方法
 func New(name string, arg ...string) *XCmd {
 	object := &XCmd{Cmd: exec.Command(name, arg...)}
 	object.readPipe = pipe.NewPIPE()
