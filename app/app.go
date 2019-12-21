@@ -64,12 +64,18 @@ func (object *App) AddShutdownHook(hook ...ShutdownHook) *App {
 }
 
 // Shutdown 关闭
-func (object *App) Shutdown() {
+func (object *App) Shutdown() *App {
 	if nil != object.signalCh &&
 		0 < cap(object.signalCh) &&
 		len(object.signalCh) < cap(object.signalCh) {
 		object.signalCh <- syscall.SIGQUIT
 	}
+	return object
+}
+
+// WaitComplete 等待完成
+func (object *App) WaitComplete() {
+	<-object.signalCh
 }
 
 // IsShutdown 是否已关闭
@@ -92,10 +98,11 @@ loop:
 			glog.Errorf("signal: %v, not handled", s)
 		}
 	}
-	close(object.signalCh)
 	fmt.Println("App shutdown")
 	glog.Info("App shutdown")
-	os.Exit(ExitOK) // 退出进程
+	close(object.signalCh)
+	// 太粗暴，注释掉
+	//os.Exit(ExitOK) // 退出进程
 }
 
 // GetInstance 获取单例
