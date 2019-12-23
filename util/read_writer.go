@@ -73,7 +73,7 @@ func (object *ReadWriterCloserUtil) Read(callback func(data []byte) bool) (err e
 		return
 	}
 	flag := true
-	readBuf := buffer.Pool.Get().(*buffer.Buffer).Initialize(1 << 16)
+	readBuf := buffer.GetPoolInstance().Borrow(1 << 16)
 	var n int
 	for flag {
 		n, err = object.impl.Read(readBuf.Internal[readBuf.GetWriteIndex():])
@@ -105,6 +105,6 @@ func (object *ReadWriterCloserUtil) Read(callback func(data []byte) bool) (err e
 	if flag {
 		callback(nil)
 	}
-	buffer.Pool.Put(readBuf.DiscardReadBytes())
+	buffer.GetPoolInstance().Return(readBuf.DiscardReadBytes())
 	return
 }
