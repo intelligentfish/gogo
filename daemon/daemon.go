@@ -168,7 +168,7 @@ func (object *Daemon) replaceChildProcess(tcpLnFiles map[string]*os.File) (ok bo
 	glog.Infof("wait new child")
 	object.xCmdObj = newXCmdObj
 	object.wg.Add(1)
-	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
 		defer object.wg.Done()
 
 		if err = object.xCmdObj.Wait(); nil != err {
@@ -244,7 +244,7 @@ func (object *Daemon) runAsChild(bootstrapArgs *string,
 	panicOnError(json.Unmarshal([]byte(*bootstrapArgs), &tcpFds))
 
 	// 等待业务启动
-	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
 		// 等待准备好
 		ok := <-ready
 		if !ok {

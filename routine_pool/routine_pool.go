@@ -7,6 +7,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/app"
 	"github.com/intelligentfish/gogo/app_cfg"
+	"math"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -85,11 +86,16 @@ func (object *DefaultRunnable) String() string {
 	return object.GetID()
 }
 
+// 崩溃处理器
+type PanicHandler func(r interface{})
+
 // RoutinePool 协程池
 type RoutinePool struct {
+	panicHandler  PanicHandler       // 崩溃处理器
 	stopFlag      int32              // 停止标志
 	minRoutine    int                // 最小协程持有
-	poolSize      int32              // 协程池大小
+	minPoolSize   int32              // 协程池最小大小
+	maxPoolSize   int32              // 协程池最大大小
 	ctx           context.Context    // 上下文
 	cancel        context.CancelFunc // 撤销方法
 	wg            sync.WaitGroup     // 等待组
@@ -97,18 +103,28 @@ type RoutinePool struct {
 	taskQueueSize int32              // 任务队列大小
 }
 
-// new 工厂方法
-func new(routinePoolSize int) *RoutinePool {
+// New 工厂方法
+func New(minPoolSize, maxPoolSize int) *RoutinePool {
 	object := &RoutinePool{
-		stopFlag:   0,
-		minRoutine: routinePoolSize,
-		poolSize:   int32(routinePoolSize),
-		taskQueue:  make(chan Runnable, defaultTaskQueueSize),
+		stopFlag:    0,
+		minRoutine:  minPoolSize,
+		minPoolSize: int32(minPoolSize),
+		maxPoolSize: int32(maxPoolSize),
+		taskQueue:   make(chan Runnable, defaultTaskQueueSize),
+	}
+	if 0 == object.maxPoolSize {
+		object.maxPoolSize = math.MaxInt32
 	}
 	object.ctx, object.cancel = context.WithCancel(context.Background())
-	for i := 0; i < routinePoolSize; i++ {
+	for i := 0; i < minPoolSize; i++ {
 		go object.loop()
 	}
+	return object
+}
+
+// SetPanicHandler 设置崩溃处理器
+func (object *RoutinePool) SetPanicHandler(handler PanicHandler) *RoutinePool {
+	object.panicHandler = handler
 	return object
 }
 
@@ -117,9 +133,13 @@ func (object *RoutinePool) doWork(task Runnable) {
 	defer func() {
 		if r := recover(); nil != r {
 			// 出Bug了，优雅关闭吧
-			glog.Error(r)
-			debug.PrintStack()
-			app.GetInstance().Shutdown()
+			if nil != object.panicHandler {
+				object.panicHandler(r)
+			} else {
+				glog.Error(r)
+				debug.PrintStack()
+				app.GetInstance().Shutdown()
+			}
 		}
 	}()
 	if app_cfg.GetInstance().Debug {
@@ -140,25 +160,27 @@ loop:
 		case <-object.ctx.Done():
 			break loop
 		case task := <-object.taskQueue:
-			atomic.AddInt32(&object.poolSize, -1)
+			atomic.AddInt32(&object.minPoolSize, -1)
 			object.doWork(task)
-			if int32(object.minRoutine) < atomic.LoadInt32(&object.poolSize) {
+			if int32(object.minRoutine) < atomic.LoadInt32(&object.minPoolSize) {
 				break loop
 			}
-			atomic.AddInt32(&object.poolSize, 1)
+			atomic.AddInt32(&object.minPoolSize, 1)
 			atomic.AddInt32(&object.taskQueueSize, -1)
 		}
 	}
 	object.wg.Done()
 }
 
-// PostRunnable 提交任务
-func (object *RoutinePool) PostRunnable(runnable Runnable) (err error) {
+// CommitRunnable 提交任务
+func (object *RoutinePool) CommitRunnable(runnable Runnable) (err error) {
 	if object.IsStopped() {
 		err = ErrRoutinePoolClosed
 		return
 	}
-	if atomic.AddInt32(&object.taskQueueSize, 1) >= atomic.LoadInt32(&object.poolSize) {
+	taskQueueSize := atomic.AddInt32(&object.taskQueueSize, 1)
+	if taskQueueSize >= atomic.LoadInt32(&object.minPoolSize) &&
+		atomic.LoadInt32(&object.maxPoolSize) > taskQueueSize /*限定池的大小*/ {
 		go object.loop()
 	}
 	glog.Info("post task ", runnable)
@@ -166,11 +188,11 @@ func (object *RoutinePool) PostRunnable(runnable Runnable) (err error) {
 	return nil
 }
 
-// PostTask 提交任务
-func (object *RoutinePool) PostTask(task func(ctx context.Context, params []interface{}) interface{},
+// CommitTask 提交任务
+func (object *RoutinePool) CommitTask(task func(ctx context.Context, params []interface{}) interface{},
 	taskName string,
 	params ...interface{}) (err error) {
-	return object.PostRunnable(NewDefaultRunnable(object.ctx, task, taskName, params))
+	return object.CommitRunnable(NewDefaultRunnable(object.ctx, task, taskName, params))
 }
 
 // 是否已经停止
@@ -186,8 +208,8 @@ func (object *RoutinePool) Stop() {
 	atomic.StoreInt32(&object.stopFlag, 1)
 	for 0 < len(object.taskQueue) {
 		object.doWork(<-object.taskQueue)
-		if int32(object.minRoutine) < atomic.LoadInt32(&object.poolSize) {
-			atomic.AddInt32(&object.poolSize, -1)
+		if int32(object.minRoutine) < atomic.LoadInt32(&object.minPoolSize) {
+			atomic.AddInt32(&object.minPoolSize, -1)
 		}
 	}
 }
@@ -195,7 +217,7 @@ func (object *RoutinePool) Stop() {
 // GetInstance 获取单例
 func GetInstance() *RoutinePool {
 	routinePoolOnce.Do(func() {
-		routinePoolInstance = new(16)
+		routinePoolInstance = New(16, 0)
 	})
 	return routinePoolInstance
 }

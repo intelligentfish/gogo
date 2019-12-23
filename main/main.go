@@ -39,7 +39,7 @@ func mainImpl(tcpFds map[string]int, ready chan bool) {
 	engine.GET("/api/v1/pid", func(ctx *gin.Context) {
 		ctx.String(http.StatusOK, fmt.Sprintf("pid: %d, ppid: %d\n", os.Getpid(), os.Getppid()))
 	})
-	routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
 		if err = engine.RunListener(webLn); nil != err {
 			glog.Error(err)
 		}

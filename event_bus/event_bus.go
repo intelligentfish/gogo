@@ -105,7 +105,7 @@ func (object *EventBus) wait() {
 			//退还资源
 			object.wg.Done()
 			//事件循环非正常退出
-			routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
+			routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
 				object.wait()
 				return nil
 			}, "EventBus")
@@ -143,7 +143,7 @@ func (object *EventBus) notify(notifiableArray []Notifiable, param interface{}) 
 // start 运行
 func (object *EventBus) start() {
 	for i := 0; i < EventBusWorkerSize; i++ {
-		routine_pool.GetInstance().PostTask(func(ctx context.Context, params []interface{}) interface{} {
+		routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
 			object.wait()
 			return nil
 		}, "EventBus")
