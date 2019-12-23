@@ -129,6 +129,25 @@ func (object *Buffer) ReadUint32() (v uint32) {
 	return
 }
 
+// ReadBytes 读取字节
+func (object *Buffer) ReadBytes(maxSize int) (chunk []byte) {
+	if 0 >= object.ReadableBytes() {
+		return
+	}
+	if maxSize > object.ReadableBytes() {
+		maxSize = object.ReadableBytes()
+	}
+	chunk = make([]byte, maxSize)
+	copy(chunk, object.Internal[object.readIndex:object.readIndex+maxSize])
+	object.readIndex += maxSize
+	return
+}
+
+// ReadAllBytes 读取所有字节
+func (object *Buffer) ReadAllBytes() (chunk []byte) {
+	return object.ReadBytes(object.ReadableBytes())
+}
+
 // DiscardReadBytes 丢弃已读的数据
 func (object *Buffer) DiscardReadBytes() *Buffer {
 	copy(object.Internal, object.Internal[object.readIndex:object.writeIndex])
