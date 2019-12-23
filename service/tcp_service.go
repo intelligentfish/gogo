@@ -153,7 +153,7 @@ func (object *TCPSession) NeedClose() bool {
 func (object *TCPSession) read() {
 	var n int
 	var err error
-	readBuf := buffer.Pool.Get().(buffer.Buffer).Initialize(1 << 13)
+	readBuf := buffer.GetPoolInstance().Borrow(1 << 13)
 	for {
 		n, err = object.C.Read(readBuf.Internal[readBuf.GetReadIndex():])
 		if nil != err {
@@ -202,7 +202,7 @@ func (object *TCPSession) read() {
 			}
 		})
 	}
-	buffer.Pool.Put(readBuf.DiscardReadBytes())
+	buffer.GetPoolInstance().Return(readBuf.SetReadIndex(readBuf.GetWriteIndex()).DiscardReadBytes())
 }
 
 // 写空
