@@ -48,7 +48,7 @@ func newRSAGenerator(chanSize, rsaKeySize int) *RSAGenerator {
 	}
 	object.wg.Add(concurrency)
 	for i := 0; i < concurrency; i++ {
-		routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+		routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 			defer object.wg.Done()
 		loop:
 			for {
@@ -65,7 +65,7 @@ func newRSAGenerator(chanSize, rsaKeySize int) *RSAGenerator {
 					object.ch <- rsaObject
 				}
 			}
-			return nil
+			return
 		}, "RSAGenerator")
 	}
 	return object

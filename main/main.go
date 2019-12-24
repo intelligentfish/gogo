@@ -19,7 +19,7 @@ import (
 )
 
 // mainImpl main实现
-func mainImpl(tcpFds map[string]int, ready chan bool) {
+func mainImpl(tcpFds map[string]int, ready chan bool, exit chan interface{}) {
 	// 输出进程PID
 	glog.Infof("app id: %d", app.GetInstance().PID)
 
@@ -39,11 +39,10 @@ func mainImpl(tcpFds map[string]int, ready chan bool) {
 	engine.GET("/api/v1/pid", func(ctx *gin.Context) {
 		ctx.String(http.StatusOK, fmt.Sprintf("pid: %d, ppid: %d\n", os.Getpid(), os.Getppid()))
 	})
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 		if err = engine.RunListener(webLn); nil != err {
 			glog.Error(err)
 		}
-		return nil
 	}, "mainImpl")
 
 	// 准备好
@@ -72,5 +71,14 @@ func mainImpl(tcpFds map[string]int, ready chan bool) {
 func main() {
 	// 创建日志目录
 	d := daemon.Default()
-	d.Bootstrap(map[string]int{"web": 10080}, mainImpl, make(chan bool, 1))
+	d.Bootstrap(
+		func() {
+			// 添加自定义命令行参数
+		},
+		func() {
+			// 添加自定义命令行参数判断
+		},
+		map[string]int{"web": 10080},
+		mainImpl,
+	)
 }

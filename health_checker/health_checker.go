@@ -119,7 +119,7 @@ func (object *HealthChecker) Start() {
 	wg.Add(2)
 	ctx, cancel := context.WithCancel(context.Background())
 	// 延迟执行一次
-	routine_pool.GetInstance().CommitTask(func(_ context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(_ context.Context, params []interface{}) {
 		defer wg.Done()
 		select {
 		case <-ctx.Done():
@@ -133,10 +133,9 @@ func (object *HealthChecker) Start() {
 			event_bus.GetInstance().Notify(reflect.TypeOf(&event.HealthCheckRequest{}),
 				&event.HealthCheckRequest{})
 		}
-		return nil
 	}, "HealthCheckerSender")
 	// 检查
-	routine_pool.GetInstance().CommitTask(func(_ context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(_ context.Context, params []interface{}) {
 		defer wg.Done()
 	loop:
 		for {
@@ -168,7 +167,6 @@ func (object *HealthChecker) Start() {
 				})
 			}
 		}
-		return nil
 	}, "HealthCheckerReporter")
 	// 处理消息
 	event_bus.GetInstance().Mounting(reflect.TypeOf(&event.AppShutdownEvent{}),
@@ -197,7 +195,7 @@ func (object *HealthChecker) Start() {
 					v.MaxFailedTimes++
 				}
 			})
-			routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+			routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 				select {
 				case <-ctx.Done():
 					break
@@ -210,7 +208,6 @@ func (object *HealthChecker) Start() {
 					event_bus.GetInstance().Notify(reflect.TypeOf(&event.HealthCheckRequest{}),
 						&event.HealthCheckRequest{UniqueName: reply.UniqueName})
 				}
-				return nil
 			}, "HealthCheckerSender")
 		})
 }

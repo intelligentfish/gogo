@@ -110,7 +110,7 @@ func (object *ApolloClient) Start() {
 			wg.Wait()
 			glog.Info("ApolloClient done")
 		})
-	routine_pool.GetInstance().CommitTask(func(_ context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(_ context.Context, params []interface{}) {
 		defer wg.Done()
 	loop:
 		for {
@@ -129,7 +129,7 @@ func (object *ApolloClient) Start() {
 				event_bus.GetInstance().SyncNotify(reflect.TypeOf(&ConfigChangeNotification{}), ccn)
 			}
 		}
-		return nil
+		return
 	}, "ApolloClient")
 }
 

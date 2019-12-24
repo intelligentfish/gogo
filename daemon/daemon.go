@@ -1,13 +1,9 @@
 package daemon
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/intelligentfish/gogo/app"
-	"github.com/intelligentfish/gogo/routine_pool"
-	"github.com/intelligentfish/gogo/xcmd"
 	"io/ioutil"
 	"net"
 	"os"
@@ -25,7 +21,7 @@ const (
 	ReadyOK     = "ReadyOK"
 	ReadyError  = "ReadyError"
 	ExitRequest = "Exit"
-	ExitReply   = "Exit"
+	ExitReply   = ExitRequest
 )
 
 // panicOnError 错误崩溃
@@ -43,7 +39,7 @@ type Daemon struct {
 	killedFlag      int32          // 正常停服标志
 	origArgs        []string       // 程序原始运行参数
 	wg              sync.WaitGroup // 等待组
-	xCmdObj         *xcmd.XCmd     // 扩展Cmd
+	xCmdObj         *XCmd          // 扩展Cmd
 	childCmd        string         // 运行子进程命令 --child
 	upgradeCmd      string         // 更新命名 --upgrade
 	bootstrapArgs   string         // 引导参数 --bootstrap_args
@@ -74,14 +70,14 @@ func Default() *Daemon {
 }
 
 // spawnChildProcess 生成孩子进程
-func (object *Daemon) spawnChildProcess(tcpLnFiles map[string]*os.File) (xCmdObj *xcmd.XCmd, err error) {
+func (object *Daemon) spawnChildProcess(tcpLnFiles map[string]*os.File) (xCmdObj *XCmd, err error) {
 	// 构建启动参数
 	args := make([]string, len(object.origArgs))
 	copy(args, object.origArgs)
 	args = append(args, "--"+object.childCmd)
 
 	// 构建XCmd
-	xCmdObj = xcmd.New(args[0], args[1:]...)
+	xCmdObj = NewXCmd(args[0], args[1:]...)
 
 	// 赋值标准流
 	xCmdObj.Stdin = os.Stdin
@@ -115,7 +111,7 @@ func (object *Daemon) replaceChildProcess(tcpLnFiles map[string]*os.File) (ok bo
 	object.Lock()
 	defer object.Unlock()
 
-	var newXCmdObj *xcmd.XCmd
+	var newXCmdObj *XCmd
 	newXCmdObj, err = object.spawnChildProcess(tcpLnFiles)
 	if nil != err {
 		glog.Error(err)
@@ -125,17 +121,17 @@ func (object *Daemon) replaceChildProcess(tcpLnFiles map[string]*os.File) (ok bo
 	// 等待子进程启动成功
 	ok = false
 	if err = newXCmdObj.ParentRead(func(raw []byte) bool {
-		if nil == raw || 0 >= len(raw) {
-			return false
-		}
 		request := string(raw)
-		glog.Info("child request: ", request)
 		switch request {
 		case ReadyOK:
+			glog.Info("child ready ok")
 			ok = true
 			return false
+
 		case ReadyError:
+			glog.Error("child ready error")
 			return false
+
 		default:
 			return true
 		}
@@ -152,14 +148,12 @@ func (object *Daemon) replaceChildProcess(tcpLnFiles map[string]*os.File) (ok bo
 
 	if nil != object.xCmdObj {
 		glog.Info("notify old child exit")
-		// 通知退出
-		if err = object.notifyChildExit(); nil != err {
+		// 发送停止指令
+		if err = object.waitChildSafeExit(); nil != err {
 			glog.Error(err)
 		}
 		object.xCmdObj.Process.Kill()
-
 		object.wg.Wait()
-
 		glog.Info("notify old child exit")
 		object.xCmdObj.Close()
 		object.xCmdObj = nil
@@ -168,7 +162,7 @@ func (object *Daemon) replaceChildProcess(tcpLnFiles map[string]*os.File) (ok bo
 	glog.Infof("wait new child")
 	object.xCmdObj = newXCmdObj
 	object.wg.Add(1)
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+	go func() {
 		defer object.wg.Done()
 
 		if err = object.xCmdObj.Wait(); nil != err {
@@ -177,7 +171,7 @@ func (object *Daemon) replaceChildProcess(tcpLnFiles map[string]*os.File) (ok bo
 		if atomic.CompareAndSwapInt32(&object.upgradeFlag, 1, 0) {
 			// 正常更新流程
 			glog.Infof("child: %d done", object.xCmdObj.Process.Pid)
-			return nil
+			return
 		}
 
 		if 0 == atomic.LoadInt32(&object.killedFlag) {
@@ -188,7 +182,7 @@ func (object *Daemon) replaceChildProcess(tcpLnFiles map[string]*os.File) (ok bo
 				object.rebootTimes)
 			if 0 > object.rebootTimes {
 				os.Exit(-1)
-				return nil
+				return
 			}
 
 			object.xCmdObj.Process.Release()
@@ -198,36 +192,38 @@ func (object *Daemon) replaceChildProcess(tcpLnFiles map[string]*os.File) (ok bo
 		} else {
 			glog.Infof("child: %d done", object.xCmdObj.Process.Pid)
 		}
-		return nil
-	}, "DaemonChildWaiter")
+	}()
 	return
 }
 
-// notifyChildExit 通知子进程退出
-func (object *Daemon) notifyChildExit() (err error) {
-	// 通知退出
-	object.xCmdObj.ParentWrite([]byte(ExitRequest))
-	// 等待回执
-	err = object.xCmdObj.ParentRead(func(raw []byte) bool {
-		if nil == raw || 0 >= len(raw) {
-			return false
+// waitChildSafeExit 等待子进程安全退出
+func (object *Daemon) waitChildSafeExit() (err error) {
+	if nil != object.xCmdObj {
+		if err = object.xCmdObj.ParentWrite([]byte(ExitRequest)); nil != err {
+			return
 		}
-		request := string(raw)
-		glog.Info("child reply: ", request)
-		switch request {
-		case ExitReply:
-			return false
-		default:
+		err = object.xCmdObj.ParentRead(func(raw []byte) bool {
+			if nil == raw || 0 >= len(raw) {
+				glog.Info("child request nil")
+				return false
+			}
+			request := string(raw)
+			switch request {
+			case ExitReply:
+				glog.Info("child request exit")
+				return false
+			}
 			return true
-		}
-	})
+		})
+	}
 	return
 }
 
 // runAsChild 运行于子程序
 func (object *Daemon) runAsChild(bootstrapArgs *string,
-	logical func(tcpFds map[string]int, ready chan bool), // 业务逻辑
-	ready chan bool, // 准备好通道
+	logical func(tcpFds map[string]int,
+		ready chan bool, /*准备好通道*/
+		exit /*退出*/ chan interface{}), // 业务逻辑
 ) {
 	// 检查运行参数
 	if nil == bootstrapArgs || 0 >= len(*bootstrapArgs) {
@@ -236,52 +232,54 @@ func (object *Daemon) runAsChild(bootstrapArgs *string,
 	}
 
 	// 获取通信对象
-	object.xCmdObj = xcmd.FromFd(3, 4)
+	object.xCmdObj = XCmdFromFd(3, 4)
 	defer object.xCmdObj.Close()
 
 	// 解析fd
 	tcpFds := make(map[string]int)
 	panicOnError(json.Unmarshal([]byte(*bootstrapArgs), &tcpFds))
 
-	// 等待业务启动
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+	// 准备好
+	ready := make(chan bool, 1)
+	// 等待完成
+	exitCh := make(chan interface{}, 1)
+	go func() {
 		// 等待准备好
 		ok := <-ready
 		if !ok {
 			glog.Error("logical ready not ok")
 			object.xCmdObj.ChildWrite([]byte(ReadyError))
-			app.GetInstance().Shutdown().WaitComplete()
-			return nil
+			return
 		}
 
 		// 回执启动成功
-		glog.Info("child request ready ok")
 		object.xCmdObj.ChildWrite([]byte(ReadyOK))
-		glog.Info("child request ready ok end")
 
-		// 等待父进程发送退出指令
-		object.xCmdObj.ChildRead(func(raw []byte) bool {
+		// 等待父进程发起退出命令
+		err := object.xCmdObj.ChildRead(func(raw []byte) bool {
 			if nil == raw || 0 >= len(raw) {
-				glog.Error("parent request nil, shutdown child")
-				app.GetInstance().Shutdown().WaitComplete()
+				// 父进程退了
 				return false
 			}
 			request := string(raw)
 			switch request {
 			case ExitRequest:
-				glog.Error("parent request exit, shutdown child")
-				object.xCmdObj.ChildWrite([]byte(ExitReply))
-				app.GetInstance().Shutdown().WaitComplete()
 				return false
 			}
 			return true
 		})
+		if nil != err {
+			glog.Error(err)
+		}
+		close(exitCh)
+	}()
 
-		return nil
-	}, "Daemon")
+	// 让业务逻辑在主协程运行
+	// 调用业务逻辑
+	logical(tcpFds, ready, exitCh)
 
-	// 将业务逻辑放置在主协程
-	logical(tcpFds, ready)
+	// 通知守护进程，可以安全退出
+	object.xCmdObj.ChildWrite([]byte(ExitReply))
 }
 
 // runUpgrade 运行更新
@@ -318,15 +316,21 @@ func (object *Daemon) runUpgrade() {
 }
 
 // Bootstrap 引导
-func (object *Daemon) Bootstrap(tcpPorts map[string]int, // TCP端口
-	logical func(tcpFds map[string]int, ready chan bool), // 业务逻辑
-	ready chan bool, // 准备好通道
+func (object *Daemon) Bootstrap(
+	beforeParseArgsHook func(), // 解析命令行参数前执行
+	afterParseArgsHook func(), // 解析命令行参数后执行
+	tcpPorts map[string]int, //TCP端口
+	logical func(tcpFds map[string]int,
+		ready chan bool, /*准备好通道*/
+		exitCh chan interface{} /*退出通道*/), // 业务逻辑
 ) (err error) {
 	rebootTimes := flag.Int("reboot_times", 3, "")
 	runInChild := flag.Bool(object.childCmd, false, "run in child")
 	runUpgrade := flag.Bool(object.upgradeCmd, false, "run upgrade")
 	bootstrapArgs := flag.String(object.bootstrapArgs, "", "bootstrap args")
+	beforeParseArgsHook()
 	flag.Parse()
+	afterParseArgsHook()
 
 	// 等待信号
 	signalCh := make(chan os.Signal, 1)
@@ -334,7 +338,7 @@ func (object *Daemon) Bootstrap(tcpPorts map[string]int, // TCP端口
 
 	// 运行业务逻辑
 	if nil != runInChild && *runInChild {
-		object.runAsChild(bootstrapArgs, logical, ready)
+		object.runAsChild(bootstrapArgs, logical)
 		return
 	}
 
@@ -409,8 +413,8 @@ parentSignalLoop:
 
 			// 设置主动停服标志
 			atomic.StoreInt32(&object.killedFlag, 1)
-			// 通知退出
-			if err = object.notifyChildExit(); nil != err {
+			// 发送停止指令
+			if err = object.waitChildSafeExit(); nil != err {
 				glog.Error(err)
 			}
 			// 发送信号，停止子进程

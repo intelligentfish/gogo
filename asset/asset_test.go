@@ -48,7 +48,7 @@ func TestUserAsset(t *testing.T) {
 		return
 	}
 
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 	loop:
 		for {
 			select {
@@ -70,9 +70,8 @@ func TestUserAsset(t *testing.T) {
 				}
 			}
 		}
-		return nil
 	}, "SubUserBalanceJob")
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 	loop:
 		for {
 			select {
@@ -108,7 +107,6 @@ func TestUserAsset(t *testing.T) {
 				}
 			}
 		}
-		return nil
 	}, "UserAssetSyncJob")
 
 	app.GetInstance().AddShutdownHook(

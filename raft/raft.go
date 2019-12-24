@@ -124,20 +124,19 @@ loop:
 				wg.Add(len(object.otherNodeAddresses))
 				for _, address := range object.otherNodeAddresses {
 					apiURL := fmt.Sprintf("http://%s%s", address, "/api/v1/vote")
-					routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+					routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 						defer wg.Done()
 						values := url.Values{}
 						values.Add("from", object.myAddress)
 						res, err := http.PostForm(apiURL, values)
 						if nil != err {
 							glog.Error(err)
-							return nil
+							return
 						}
 						if http.StatusOK != res.StatusCode {
 							glog.Error("status error", res.Status)
-							return nil
+							return
 						}
-						return nil
 					}, "RaftVote")
 				}
 				wg.Wait()
@@ -159,7 +158,7 @@ loop:
 				wg.Add(len(object.followerAddresses))
 				for _, address := range object.followerAddresses {
 					apiURL := fmt.Sprintf("http://%s%s", address, "/api/v1/heartbeat")
-					routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+					routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 						defer wg.Done()
 						values := url.Values{}
 						values.Add("from", object.myAddress)
@@ -167,11 +166,11 @@ loop:
 						res, err := http.PostForm(apiURL, values)
 						if nil != err {
 							glog.Error(err)
-							return nil
+							return
 						}
 						if http.StatusOK != res.StatusCode {
 							glog.Error("status error", res.Status)
-							return nil
+							return
 						}
 						var R struct {
 							Leader bool   `json:"leader" form:"leader" binding:"required"`
@@ -182,11 +181,11 @@ loop:
 						raw, err = ioutil.ReadAll(res.Body)
 						if nil != err {
 							glog.Error(err)
-							return nil
+							return
 						}
 						if err = json.Unmarshal(raw, &R); nil != err {
 							glog.Error(err)
-							return nil
+							return
 						}
 						object.WithLock(false, func() {
 							if NodeStateLeader != object.NodeState {
@@ -200,7 +199,7 @@ loop:
 								object.NodeState = NodeStateFollower
 							}
 						})
-						return nil
+						return
 					}, "RaftVote")
 				}
 				wg.Wait()
@@ -326,15 +325,15 @@ func (object *Node) Start() {
 		Addr:    object.myAddress,
 		Handler: engine,
 	}
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 		if err := srv.ListenAndServe(); nil != err && http.ErrServerClosed != err {
 			glog.Error(err)
 		}
-		return nil
+		return
 	}, "RaftWebApi")
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 		object.switchState()
-		return nil
+		return
 	}, "RaftSwitchState")
 	event_bus.GetInstance().Mounting(reflect.TypeOf(&event.AppShutdownEvent{}),
 		func(_ context.Context, param interface{}) {

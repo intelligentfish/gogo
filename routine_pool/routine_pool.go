@@ -28,24 +28,24 @@ var (
 
 // Runnable 执行体
 type Runnable interface {
-	GetID() string                        // ID
-	GetParams() []interface{}             // 获取参数
-	GetCtx() context.Context              // 获取上下文
-	Run(params []interface{}) interface{} // 执行
+	GetID() string            // ID
+	GetParams() []interface{} // 获取参数
+	GetCtx() context.Context  // 获取上下文
+	Run(params []interface{}) // 执行
 }
 
 // DefaultRunnable 默认实现
 type DefaultRunnable struct {
 	ID     int64
 	Name   string
-	Method func(ctx context.Context, params []interface{}) interface{}
+	Method func(ctx context.Context, params []interface{})
 	Params []interface{}
 	Ctx    context.Context
 }
 
 // NewDefaultRunnable 实例化默认执行体
 func NewDefaultRunnable(ctx context.Context,
-	taskMethod func(ctx context.Context, params []interface{}) interface{},
+	taskMethod func(ctx context.Context, params []interface{}),
 	taskName string,
 	taskParam []interface{}) *DefaultRunnable {
 	object := &DefaultRunnable{
@@ -77,8 +77,8 @@ func (object *DefaultRunnable) GetCtx() context.Context {
 }
 
 // Start 执行
-func (object *DefaultRunnable) Run(params []interface{}) interface{} {
-	return object.Method(object.Ctx, params)
+func (object *DefaultRunnable) Run(params []interface{}) {
+	object.Method(object.Ctx, params)
 }
 
 // 字符串描述
@@ -91,26 +91,26 @@ type PanicHandler func(r interface{})
 
 // RoutinePool 协程池
 type RoutinePool struct {
-	panicHandler  PanicHandler       // 崩溃处理器
-	stopFlag      int32              // 停止标志
-	minRoutine    int                // 最小协程持有
-	minPoolSize   int32              // 协程池最小大小
-	maxPoolSize   int32              // 协程池最大大小
-	ctx           context.Context    // 上下文
-	cancel        context.CancelFunc // 撤销方法
-	wg            sync.WaitGroup     // 等待组
-	taskQueue     chan Runnable      // 任务队列
-	taskQueueSize int32              // 任务队列大小
+	panicHandler    PanicHandler       // 崩溃处理器
+	stopFlag        int32              // 停止标志
+	currentPoolSize int32              // 协程池当前大小
+	minPoolSize     int32              // 协程池最小大小
+	maxPoolSize     int32              // 协程池最大大小
+	ctx             context.Context    // 上下文
+	cancel          context.CancelFunc // 撤销方法
+	wg              sync.WaitGroup     // 等待组
+	taskQueue       chan Runnable      // 任务队列
+	taskQueueSize   int32              // 任务队列大小
 }
 
 // New 工厂方法
 func New(minPoolSize, maxPoolSize int) *RoutinePool {
 	object := &RoutinePool{
-		stopFlag:    0,
-		minRoutine:  minPoolSize,
-		minPoolSize: int32(minPoolSize),
-		maxPoolSize: int32(maxPoolSize),
-		taskQueue:   make(chan Runnable, defaultTaskQueueSize),
+		stopFlag:        0,
+		currentPoolSize: int32(minPoolSize),
+		minPoolSize:     int32(minPoolSize),
+		maxPoolSize:     int32(maxPoolSize),
+		taskQueue:       make(chan Runnable, defaultTaskQueueSize),
 	}
 	if 0 == object.maxPoolSize {
 		object.maxPoolSize = math.MaxInt32
@@ -153,6 +153,7 @@ func (object *RoutinePool) doWork(task Runnable) {
 
 // 循环
 func (object *RoutinePool) loop() {
+	atomic.AddInt32(&object.currentPoolSize, 1)
 	object.wg.Add(1)
 loop:
 	for {
@@ -160,16 +161,15 @@ loop:
 		case <-object.ctx.Done():
 			break loop
 		case task := <-object.taskQueue:
-			atomic.AddInt32(&object.minPoolSize, -1)
 			object.doWork(task)
-			if int32(object.minRoutine) < atomic.LoadInt32(&object.minPoolSize) {
+			atomic.AddInt32(&object.taskQueueSize, -1)
+			if atomic.LoadInt32(&object.currentPoolSize) > atomic.LoadInt32(&object.minPoolSize) {
 				break loop
 			}
-			atomic.AddInt32(&object.minPoolSize, 1)
-			atomic.AddInt32(&object.taskQueueSize, -1)
 		}
 	}
 	object.wg.Done()
+	atomic.AddInt32(&object.currentPoolSize, -1)
 }
 
 // CommitRunnable 提交任务
@@ -178,18 +178,16 @@ func (object *RoutinePool) CommitRunnable(runnable Runnable) (err error) {
 		err = ErrRoutinePoolClosed
 		return
 	}
-	taskQueueSize := atomic.AddInt32(&object.taskQueueSize, 1)
-	if taskQueueSize >= atomic.LoadInt32(&object.minPoolSize) &&
-		atomic.LoadInt32(&object.maxPoolSize) > taskQueueSize /*限定池的大小*/ {
+	if atomic.AddInt32(&object.taskQueueSize, 1) >= atomic.LoadInt32(&object.minPoolSize) &&
+		atomic.LoadInt32(&object.maxPoolSize) > atomic.LoadInt32(&object.taskQueueSize) /*限定池的大小*/ {
 		go object.loop()
 	}
-	glog.Info("post task ", runnable)
 	object.taskQueue <- runnable
 	return nil
 }
 
 // CommitTask 提交任务
-func (object *RoutinePool) CommitTask(task func(ctx context.Context, params []interface{}) interface{},
+func (object *RoutinePool) CommitTask(task func(ctx context.Context, params []interface{}),
 	taskName string,
 	params ...interface{}) (err error) {
 	return object.CommitRunnable(NewDefaultRunnable(object.ctx, task, taskName, params))
@@ -200,7 +198,7 @@ func (object *RoutinePool) IsStopped() bool {
 	return 1 == atomic.LoadInt32(&object.stopFlag)
 }
 
-// stop 停止
+// Stop 停止
 func (object *RoutinePool) Stop() {
 	object.cancel()
 	object.wg.Wait()
@@ -208,10 +206,20 @@ func (object *RoutinePool) Stop() {
 	atomic.StoreInt32(&object.stopFlag, 1)
 	for 0 < len(object.taskQueue) {
 		object.doWork(<-object.taskQueue)
-		if int32(object.minRoutine) < atomic.LoadInt32(&object.minPoolSize) {
-			atomic.AddInt32(&object.minPoolSize, -1)
+		if object.currentPoolSize < atomic.LoadInt32(&object.minPoolSize) {
+			atomic.AddInt32(&object.currentPoolSize, -1)
 		}
 	}
+}
+
+// TaskQueueSize 任务队列大小
+func (object *RoutinePool) TaskQueueSize() int32 {
+	return atomic.LoadInt32(&object.taskQueueSize)
+}
+
+// PoolSize 池大小
+func (object *RoutinePool) PoolSize() int32 {
+	return atomic.LoadInt32(&object.currentPoolSize)
 }
 
 // GetInstance 获取单例

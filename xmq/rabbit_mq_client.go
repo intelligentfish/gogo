@@ -36,7 +36,7 @@ func newRabbitMQClient() *RabbitMQClient {
 func (object *RabbitMQClient) waitDisconnectAndReconnect() {
 	receiver := make(chan *amqp.Error, 1)
 	object.Conn.NotifyClose(receiver)
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 		var closed bool
 		select {
 		case _, closed = <-receiver:
@@ -46,7 +46,7 @@ func (object *RabbitMQClient) waitDisconnectAndReconnect() {
 		}
 		time.Sleep(100 * time.Millisecond) // 避免CPU过高
 		object.initialize(true)
-		return nil
+		return
 	}, "RabbitMQClient")
 }
 
@@ -59,10 +59,10 @@ func (object *RabbitMQClient) initialize(force bool) (err error) {
 	if force {
 		// 连接没有建立
 		if nil == object.Conn {
-			routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+			routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 				time.Sleep(100 * time.Millisecond)
 				object.initialize(true)
-				return nil
+				return
 			}, "RabbitMQClient")
 			return
 		}

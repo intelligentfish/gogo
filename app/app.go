@@ -5,6 +5,8 @@ import (
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/auto_lock"
 	"github.com/intelligentfish/gogo/util"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"sync"
@@ -53,6 +55,17 @@ func (object *App) notifyShutdown() {
 			}
 		}
 	})
+}
+
+// EnablePPROF 启动PPPROF
+func (object *App) EnablePPROF(addr string) *App {
+	if 0 >= len(addr) {
+		addr = ":6060"
+	}
+	go func() {
+		http.ListenAndServe(addr, nil)
+	}()
+	return object
 }
 
 // AddShutdownHook 添加关闭钩子

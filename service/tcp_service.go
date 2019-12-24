@@ -13,6 +13,7 @@ import (
 	"github.com/intelligentfish/gogo/fix_slice_pool"
 	"github.com/intelligentfish/gogo/priority_define"
 	"github.com/intelligentfish/gogo/routine_pool"
+	"github.com/intelligentfish/gogo/spin_lock"
 	"io"
 	"net"
 	"reflect"
@@ -72,17 +73,21 @@ const (
 // TCPSession TCP会话
 type TCPSession struct {
 	auto_lock.AutoLock
-	ID                int            // 会话id
-	Mode              TCPSessionMode // 模式
-	C                 net.Conn       // TCP连接
-	dataCallbackList  []DataCallback // 数据回调
-	errorCallbackList []ErrCallback  // 错误回调
-	writeCh           chan []byte    // 写通道
-	stoppedReadFlag   int32
-	stoppedWriteFlag  int32
-	stopFlag          int32          // 停止标志
-	readWG            sync.WaitGroup // 等待组
-	writeWG           sync.WaitGroup // 等待组
+	debug              bool               // 调试标志
+	name               string             // 会话名
+	ID                 int                // 会话id
+	newRoutineSpinLock spin_lock.SpinLock // 自旋锁
+	Mode               TCPSessionMode     // 模式
+	C                  net.Conn           // TCP连接
+	dataCallbackList   []DataCallback     // 数据回调
+	errorCallbackList  []ErrCallback      // 错误回调
+	writeCh            chan []byte        // 写通道
+	writeChSizeLock    sync.Mutex         // 写通道长度锁
+	stoppedReadFlag    int32              // 停止读标志
+	stoppedWriteFlag   int32              // 停止写标志
+	stopFlag           int32              // 停止标志
+	readWG             sync.WaitGroup     // 等待组
+	writeWG            sync.WaitGroup     // 等待组
 }
 
 // 数据回调
@@ -97,6 +102,18 @@ func NewTCPSession() *TCPSession {
 	object.ID = int(atomic.AddInt32(&nextSessionId, 1))
 	object.writeCh = make(chan []byte, defaultWriteChSize)
 	object.stopFlag = 0
+	return object
+}
+
+// 设置调试标志
+func (object *TCPSession) SetDebug() *TCPSession {
+	object.debug = true
+	return object
+}
+
+// 设置名称
+func (object *TCPSession) SetName(name string) *TCPSession {
+	object.name = name
 	return object
 }
 
@@ -155,11 +172,13 @@ func (object *TCPSession) read() {
 	var err error
 	readBuf := buffer.GetPoolInstance().Borrow(1 << 13)
 	for {
-		n, err = object.C.Read(readBuf.Internal[readBuf.GetReadIndex():])
+		n, err = object.C.Read(readBuf.Internal[readBuf.GetWriteIndex():])
 		if nil != err {
 			break
 		}
-		//fmt.Println("read:\n", string(chunk[:n]))
+		if object.debug {
+			fmt.Printf("op read (%s-%d, %d, %v)\n", object.name, object.ID, n, err)
+		}
 		if 0 >= n {
 			err = io.EOF
 			break
@@ -191,11 +210,14 @@ func (object *TCPSession) read() {
 						callback(object, readBuf.Slice(n))
 					}
 				})
+			readBuf.SetReadIndex(readBuf.GetWriteIndex()).DiscardReadBytes()
 		}
 	}
 	object.readWG.Done()
 	if nil != err && !object.IsStopped() {
-		glog.Errorf("session: %d error: %s", object.ID, err)
+		if object.debug {
+			glog.Errorf("session: %d error: %s", object.ID, err)
+		}
 		object.WithLock(true, func() {
 			for _, callback := range object.errorCallbackList {
 				callback(object, true, err)
@@ -221,19 +243,35 @@ func (object *TCPSession) writeUntilEmpty(raw []byte) (err error) {
 		}
 		writeSize += n
 	}
+	if object.debug {
+		fmt.Printf("op write (%s-%d, %d, %v)\n", object.name, object.ID, n, err)
+	}
 	return
 }
 
 // 写
 func (object *TCPSession) write() {
+	object.writeWG.Add(1)
+	defer object.writeWG.Done()
+
 	var err error
+	needClosed := false
+	continueFlag := true
 	header := fix_slice_pool.GetFixSlicePoolInstance().BorrowSlice(4)
-	for {
-		body, ok := <-object.writeCh
-		if !ok || nil == body {
+	for continueFlag {
+		object.writeChSizeLock.Lock()
+		continueFlag = 0 != len(object.writeCh)
+		object.writeChSizeLock.Unlock()
+		if !continueFlag {
 			break
 		}
-		//fmt.Println("write:\n", string(body))
+
+		body, ok := <-object.writeCh
+		if !ok || nil == body {
+			needClosed = true
+			break
+		}
+
 		switch object.Mode {
 		// 块模式
 		case TCPSessionModeChunk:
@@ -246,16 +284,19 @@ func (object *TCPSession) write() {
 			break
 		}
 	}
-	if nil != err && !object.IsStopped() {
-		glog.Errorf("session: %d error: %s", object.ID, err)
-		object.WithLock(true,
-			func() {
-				for _, callback := range object.errorCallbackList {
-					callback(object, false, err)
-				}
-			})
+	if needClosed || nil != err {
+		if !object.IsStopped() {
+			if object.debug {
+				glog.Errorf("session: %d error: %s", object.ID, err)
+			}
+			object.WithLock(true,
+				func() {
+					for _, callback := range object.errorCallbackList {
+						callback(object, false, err)
+					}
+				})
+		}
 	}
-	object.writeWG.Done()
 	fix_slice_pool.GetFixSlicePoolInstance().ReturnSlice(4, header)
 }
 
@@ -267,20 +308,30 @@ func (object *TCPSession) IsStopped() bool {
 // Start 启动
 func (object *TCPSession) Start() {
 	object.readWG.Add(1)
-	object.writeWG.Add(1)
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 		object.read()
-		return nil
+		return
 	}, fmt.Sprintf(`TCPSession-%d Reader`, object.ID))
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
-		object.write()
-		return nil
-	}, fmt.Sprintf(`TCPSession-%d Writer`, object.ID))
 }
 
 // Write 写
 func (object *TCPSession) Write(raw []byte) {
 	object.writeCh <- raw
+
+	object.writeChSizeLock.Lock()
+	chSize := len(object.writeCh)
+	object.writeChSizeLock.Unlock()
+	if 1 == chSize {
+		// 自旋
+		object.newRoutineSpinLock.Lock()
+
+		// 开启协程写操作
+		routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
+			defer object.newRoutineSpinLock.Unlock()
+			object.write()
+			return
+		}, fmt.Sprintf(`TCPSession-%d Writer`, object.ID))
+	}
 }
 
 // Stop 停止
@@ -295,6 +346,7 @@ func (object *TCPSession) Stop() {
 	object.readWG.Wait()
 	close(object.writeCh)
 
+	object.newRoutineSpinLock.Unlock()
 	GetTCPSessionPoolInstance().Return(object)
 }
 
@@ -364,7 +416,7 @@ func (object *TCPService) StartWithAddr(addr string) (err error) {
 		return
 	}
 
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) interface{} {
+	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 		var c net.Conn
 		var err error
 		for {
@@ -380,7 +432,7 @@ func (object *TCPService) StartWithAddr(addr string) (err error) {
 
 			object.handleConnection(c)
 		}
-		return nil
+		return
 	}, "TCPService")
 	return
 }
