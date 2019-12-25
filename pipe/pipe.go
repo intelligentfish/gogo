@@ -2,6 +2,7 @@ package pipe
 
 import (
 	"errors"
+	"github.com/intelligentfish/gogo/read_write_closer"
 	"github.com/intelligentfish/gogo/util"
 	"os"
 	"sync/atomic"
@@ -12,8 +13,8 @@ type PIPE struct {
 	closed    int32
 	readPipe  *os.File
 	writePipe *os.File
-	readUtil  *util.ReadWriterCloserUtil
-	writeUtil *util.ReadWriterCloserUtil
+	readUtil  *read_write_closer.ReadWriteCloser
+	writeUtil *read_write_closer.ReadWriteCloser
 }
 
 // 工厂方法
@@ -22,8 +23,8 @@ func NewPIPE() *PIPE {
 	var err error
 	object.readPipe, object.writePipe, err = os.Pipe()
 	util.PanicOnError(err)
-	object.readUtil = util.NewReadWriterCloserUtil(object.readPipe)
-	object.writeUtil = util.NewReadWriterCloserUtil(object.writePipe)
+	object.readUtil = read_write_closer.New(object.readPipe)
+	object.writeUtil = read_write_closer.New(object.writePipe)
 	return object
 }
 
@@ -36,7 +37,7 @@ func (object *PIPE) GetReadPipe() *os.File {
 func (object *PIPE) SetReadPipe(readPipe *os.File) *PIPE {
 	object.readPipe = readPipe
 	if nil == object.readUtil {
-		object.readUtil = util.NewReadWriterCloserUtil(readPipe)
+		object.readUtil = read_write_closer.New(readPipe)
 	}
 	return object
 }
@@ -50,7 +51,7 @@ func (object *PIPE) GetWritePipe() *os.File {
 func (object *PIPE) SetWritePipe(writePipe *os.File) *PIPE {
 	object.writePipe = writePipe
 	if nil == object.writeUtil {
-		object.writeUtil = util.NewReadWriterCloserUtil(writePipe)
+		object.writeUtil = read_write_closer.New(writePipe)
 	}
 	return object
 }
@@ -85,11 +86,11 @@ func (object *PIPE) Write(raw []byte) (err error) {
 }
 
 // Read 读取
-func (object *PIPE) Read(callback func(data []byte) bool) (err error) {
+func (object *PIPE) Read(maxSize int, callback func(data []byte) bool) (err error) {
 	if object.IsClosed() {
 		err = errors.New("pipe closed")
 		return
 	}
-	err = object.readUtil.Read(callback)
+	err = object.readUtil.Read(maxSize, callback)
 	return
 }

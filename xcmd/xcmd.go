@@ -69,8 +69,8 @@ func (object *XCmd) ParentWrite(raw []byte) (err error) {
 }
 
 // ParentRead 父进程读
-func (object *XCmd) ParentRead(callback func(raw []byte) bool) (err error) {
-	err = object.readPipe.Read(callback)
+func (object *XCmd) ParentRead(maxSize int, callback func(raw []byte) bool) (err error) {
+	err = object.readPipe.Read(maxSize, callback)
 	return
 }
 
@@ -81,7 +81,7 @@ func (object *XCmd) ChildWrite(raw []byte) (err error) {
 }
 
 // ChildRead 子进程读
-func (object *XCmd) ChildRead(callback func(raw []byte) bool) (err error) {
-	err = object.readPipe.Read(callback)
+func (object *XCmd) ChildRead(maxSize int, callback func(raw []byte) bool) (err error) {
+	err = object.readPipe.Read(maxSize, callback)
 	return
 }

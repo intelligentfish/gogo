@@ -3,7 +3,7 @@
 package pipe
 
 import (
-	"github.com/intelligentfish/gogo/util"
+	"github.com/intelligentfish/gogo/read_write_closer"
 	"os"
 	"syscall"
 )
@@ -11,7 +11,7 @@ import (
 //TODO 只支持Linux
 // NamedPipe 命名管道
 type NamedPipe struct {
-	*util.ReadWriterCloserUtil
+	*read_write_closer.ReadWriteCloser
 	name   string
 	create bool
 	file   *os.File
@@ -30,7 +30,7 @@ func NewNamedPipe(name string, create bool) (object *NamedPipe, err error) {
 		return
 	}
 	object = &NamedPipe{
-		ReadWriterCloserUtil: util.NewReadWriterCloserUtil(object.file),
+		ReadWriterCloserUtil: read_write_closer.New(object.file),
 		name:                 name,
 	}
 	return
