@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/intelligentfish/gogo/xcmd"
 	"io/ioutil"
 	"net"
 	"os"
@@ -39,7 +40,7 @@ type Daemon struct {
 	killedFlag      int32          // 正常停服标志
 	origArgs        []string       // 程序原始运行参数
 	wg              sync.WaitGroup // 等待组
-	xCmdObj         *XCmd          // 扩展Cmd
+	xCmdObj         *xcmd.XCmd     // 扩展Cmd
 	childCmd        string         // 运行子进程命令 --child
 	upgradeCmd      string         // 更新命名 --upgrade
 	bootstrapArgs   string         // 引导参数 --bootstrap_args
@@ -70,14 +71,14 @@ func Default() *Daemon {
 }
 
 // spawnChildProcess 生成孩子进程
-func (object *Daemon) spawnChildProcess(tcpLnFiles map[string]*os.File) (xCmdObj *XCmd, err error) {
+func (object *Daemon) spawnChildProcess(tcpLnFiles map[string]*os.File) (xCmdObj *xcmd.XCmd, err error) {
 	// 构建启动参数
 	args := make([]string, len(object.origArgs))
 	copy(args, object.origArgs)
 	args = append(args, "--"+object.childCmd)
 
 	// 构建XCmd
-	xCmdObj = NewXCmd(args[0], args[1:]...)
+	xCmdObj = xcmd.New(args[0], args[1:]...)
 
 	// 赋值标准流
 	xCmdObj.Stdin = os.Stdin
@@ -111,7 +112,7 @@ func (object *Daemon) replaceChildProcess(tcpLnFiles map[string]*os.File) (ok bo
 	object.Lock()
 	defer object.Unlock()
 
-	var newXCmdObj *XCmd
+	var newXCmdObj *xcmd.XCmd
 	newXCmdObj, err = object.spawnChildProcess(tcpLnFiles)
 	if nil != err {
 		glog.Error(err)
@@ -232,7 +233,7 @@ func (object *Daemon) runAsChild(bootstrapArgs *string,
 	}
 
 	// 获取通信对象
-	object.xCmdObj = XCmdFromFd(3, 4)
+	object.xCmdObj = xcmd.FromFd(3, 4)
 	defer object.xCmdObj.Close()
 
 	// 解析fd
