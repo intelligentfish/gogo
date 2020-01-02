@@ -8,7 +8,7 @@ import (
 )
 
 func TestTokenBucket(t *testing.T) {
-	tokenBucket := NewTokenBucket(100)
+	tokenBucket := NewTokenBucket(TokenBucketOPSOption(1))
 	tokenBucket.Start()
 	var wg sync.WaitGroup
 	wg.Add(1000)
@@ -21,6 +21,12 @@ func TestTokenBucket(t *testing.T) {
 			})
 		}(i)
 	}
+	go func() {
+		for i := 0; i < 100; i++ {
+			tokenBucket.UpdateOPS(i + 1)
+			time.Sleep(500 * time.Millisecond)
+		}
+	}()
 	wg.Wait()
 	fmt.Println(time.Now().Sub(start))
 	tokenBucket.Stop()
