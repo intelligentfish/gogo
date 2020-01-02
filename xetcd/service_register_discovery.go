@@ -14,9 +14,6 @@ import (
 	"time"
 )
 
-// 选项
-type Option interface{}
-
 // ServiceRegisterDiscovery 服务注册发现
 type ServiceRegisterDiscovery struct {
 	xetcd         *XETCD

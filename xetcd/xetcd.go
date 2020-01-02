@@ -7,16 +7,16 @@ import (
 	"time"
 )
 
-// etcd扩展
+// XETCD ETCD客户端
 type XETCD struct {
-	isClosed int32
-	c        *clientv3.Client
+	isClosed int32            // 是否已经关闭
+	C        *clientv3.Client // 客户端
 }
 
 // NewXETCD 工厂方法
-func NewXETCD(cfg *clientv3.Config) (x *XETCD, err error) {
-	x = &XETCD{}
-	x.c, err = clientv3.New(*cfg)
+func NewXETCD(cfg *clientv3.Config) (c *XETCD, err error) {
+	c = &XETCD{}
+	c.C, err = clientv3.New(*cfg)
 	return
 }
 
@@ -34,15 +34,33 @@ func (object *XETCD) IsClosed() bool {
 
 // Close 关闭
 func (object *XETCD) Close() {
-	if nil == object.c || !atomic.CompareAndSwapInt32(&object.isClosed, 0, 1) {
+	if nil == object.C || !atomic.CompareAndSwapInt32(&object.isClosed, 0, 1) {
 		return
 	}
-	object.c.Close()
+	object.C.Close()
 }
 
 // GetClient 获取Client
 func (object *XETCD) GetClient() *clientv3.Client {
-	return object.c
+	return object.C
+}
+
+// GetWithPrefix 获取满足前缀的所有
+func (object *XETCD) GetWithPrefix(key string, timeout time.Duration) (values map[string][]byte, err error) {
+	var resp *clientv3.GetResponse
+	object.withCancel(timeout, func(ctx context.Context) {
+		resp, err = object.C.Get(ctx, key, clientv3.WithPrefix())
+	})
+	if nil != err {
+		return
+	}
+	if 0 < resp.Count {
+		values = make(map[string][]byte, resp.Count)
+		for _, kv := range resp.Kvs {
+			values[string(kv.Key)] = kv.Value
+		}
+	}
+	return
 }
 
 // PutWithTTL 放入
@@ -51,13 +69,13 @@ func (object *XETCD) PutWithTTL(key, value string,
 	timeout time.Duration) (err error) {
 	var resp *clientv3.LeaseGrantResponse
 	object.withCancel(timeout, func(ctx context.Context) {
-		resp, err = object.c.Grant(ctx, ttl)
+		resp, err = object.C.Grant(ctx, ttl)
 	})
 	if nil != err {
 		return
 	}
 	object.withCancel(timeout, func(ctx context.Context) {
-		_, err = object.c.Put(ctx, key, value, clientv3.WithLease(resp.ID))
+		_, err = object.C.Put(ctx, key, value, clientv3.WithLease(resp.ID))
 	})
 	return
 }
@@ -68,18 +86,18 @@ func (object *XETCD) KeepAlive(key, value string,
 	timeout time.Duration) (err error) {
 	var resp *clientv3.LeaseGrantResponse
 	object.withCancel(timeout, func(ctx context.Context) {
-		resp, err = object.c.Grant(ctx, ttl)
+		resp, err = object.C.Grant(ctx, ttl)
 	})
 	if nil != err {
 		return
 	}
 	object.withCancel(timeout, func(ctx context.Context) {
-		_, err = object.c.Put(ctx, key, value, clientv3.WithLease(resp.ID))
+		_, err = object.C.Put(ctx, key, value, clientv3.WithLease(resp.ID))
 	})
 	if nil != err {
 		return
 	}
-	_, err = object.c.KeepAlive(context.TODO(), resp.ID)
+	_, err = object.C.KeepAlive(context.TODO(), resp.ID)
 	if nil != err {
 		return
 	}
@@ -90,7 +108,7 @@ func (object *XETCD) KeepAlive(key, value string,
 func (object *XETCD) Watch(ctx context.Context,
 	key string,
 	callback func(event *clientv3.Event)) {
-	for resp := range object.c.Watch(ctx, key) {
+	for resp := range object.C.Watch(ctx, key) {
 		for _, e := range resp.Events {
 			callback(e)
 		}
@@ -101,7 +119,7 @@ func (object *XETCD) Watch(ctx context.Context,
 func (object *XETCD) WatchPrefix(ctx context.Context,
 	key string,
 	callback func(event *clientv3.Event)) {
-	for resp := range object.c.Watch(ctx, key, clientv3.WithPrefix()) {
+	for resp := range object.C.Watch(ctx, key, clientv3.WithPrefix()) {
 		for _, e := range resp.Events {
 			callback(e)
 		}

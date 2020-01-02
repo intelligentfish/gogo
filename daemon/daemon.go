@@ -121,7 +121,7 @@ func (object *Daemon) replaceChildProcess(tcpLnFiles map[string]*os.File) (ok bo
 
 	// 等待子进程启动成功
 	ok = false
-	if err = newXCmdObj.ParentRead(func(raw []byte) bool {
+	if err = newXCmdObj.ParentRead(32, func(raw []byte) bool {
 		request := string(raw)
 		switch request {
 		case ReadyOK:
@@ -203,7 +203,7 @@ func (object *Daemon) waitChildSafeExit() (err error) {
 		if err = object.xCmdObj.ParentWrite([]byte(ExitRequest)); nil != err {
 			return
 		}
-		err = object.xCmdObj.ParentRead(func(raw []byte) bool {
+		err = object.xCmdObj.ParentRead(32, func(raw []byte) bool {
 			if nil == raw || 0 >= len(raw) {
 				glog.Info("child request nil")
 				return false
@@ -257,7 +257,7 @@ func (object *Daemon) runAsChild(bootstrapArgs *string,
 		object.xCmdObj.ChildWrite([]byte(ReadyOK))
 
 		// 等待父进程发起退出命令
-		err := object.xCmdObj.ChildRead(func(raw []byte) bool {
+		err := object.xCmdObj.ChildRead(32, func(raw []byte) bool {
 			if nil == raw || 0 >= len(raw) {
 				// 父进程退了
 				return false
