@@ -29,12 +29,15 @@ func NewTokenBucket(ops int) *TokenBucket {
 func (object *TokenBucket) Start() {
 	object.wg.Add(1)
 	go func() {
+	loop:
 		for {
 			select {
 			case <-object.ctx.Done():
-				break
+				break loop
 			case <-time.After(object.rateLimit * time.Nanosecond):
-				object.bucket <- nil
+				if len(object.bucket) < cap(object.bucket) {
+					object.bucket <- nil
+				}
 			}
 		}
 		object.wg.Done()
