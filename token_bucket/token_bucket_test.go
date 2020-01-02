@@ -8,7 +8,7 @@ import (
 )
 
 func TestTokenBucket(t *testing.T) {
-	tokenBucket := NewTokenBucket(TokenBucketOPSOption(1))
+	tokenBucket := New(OPSOption(1))
 	tokenBucket.Start()
 	var wg sync.WaitGroup
 	wg.Add(1000)

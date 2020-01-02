@@ -17,22 +17,25 @@ type TokenBucket struct {
 	cancel    context.CancelFunc
 }
 
-type TokenBucketOption func(object *TokenBucket)
+// Option 令牌桶选项
+type Option func(object *TokenBucket)
 
-func TokenBucketOPSOption(ops int) TokenBucketOption {
+// OPSOption OPS选项
+func OPSOption(ops int) Option {
 	return func(object *TokenBucket) {
 		object.ops = ops
 	}
 }
 
-func TokenBucketMaxOption(max int) TokenBucketOption {
+// MaxCapacityOption 最大容量选项
+func MaxCapacityOption(max int) Option {
 	return func(object *TokenBucket) {
 		object.max = max
 	}
 }
 
-// NewTokenBucket 工厂方法
-func NewTokenBucket(options ...TokenBucketOption) *TokenBucket {
+// New 工厂方法
+func New(options ...Option) *TokenBucket {
 	object := &TokenBucket{}
 	for _, option := range options {
 		option(object)
@@ -83,7 +86,7 @@ func (object *TokenBucket) Start() {
 func (object *TokenBucket) Stop() {
 	object.cancel()
 	object.wg.Wait()
-	close(object.bucket)
+	close(object.bucket) // 让所有等待令牌的协程返回
 }
 
 // WithToken 获取token
