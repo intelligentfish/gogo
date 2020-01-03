@@ -9,7 +9,7 @@ import (
 func TestNew(t *testing.T) {
 	byteBuf := byte_buf.New()
 	byteBuf.WriteBytes([]byte("GET / HTTP/1.1\r\nConnect: close\r\nContent-Length: 5\r\n\r\nHello"))
-	parser := New(byteBuf)
+	parser := New(ByteBufOption(byteBuf))
 	if ParseResultOK != parser.Parse() {
 		t.Error("Parse")
 		return
@@ -60,7 +60,7 @@ func TestNew(t *testing.T) {
 func TestParseStream(t *testing.T) {
 	byteBuf := byte_buf.New()
 	raw := []byte("GET / HTTP/1.1\r\nConnect: close\r\nContent-Length: 5\r\n\r\nHello")
-	parser := New(byteBuf)
+	parser := New(ByteBufOption(byteBuf))
 	for {
 		parseResult := parser.Parse()
 		if ParseResultContinue != parseResult {
@@ -119,7 +119,7 @@ func TestParseStream(t *testing.T) {
 func TestChunked(t *testing.T) {
 	byteBuf := byte_buf.New()
 	byteBuf.WriteBytes([]byte("GET / HTTP/1.1\r\nConnect: close\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello0\r\n"))
-	parser := New(byteBuf)
+	parser := New(ByteBufOption(byteBuf))
 	if ParseResultOK != parser.Parse() {
 		t.Error("Parse")
 		return
@@ -164,7 +164,7 @@ func TestChunked(t *testing.T) {
 func TestChunkedStream(t *testing.T) {
 	byteBuf := byte_buf.New()
 	raw := []byte("GET / HTTP/1.1\r\nConnect: close\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello0\r\n")
-	parser := New(byteBuf)
+	parser := New(ByteBufOption(byteBuf))
 	for {
 		parseResult := parser.Parse()
 		if ParseResultContinue != parseResult {

@@ -31,37 +31,55 @@ const (
 type ParseResult int
 
 const (
-	ParseResultContinue = ParseResult(iota)
-	ParseResultOK
-	ParseResultError
+	ParseResultContinue = ParseResult(iota) // 继续解析
+	ParseResultOK                           // 解析成功
+	ParseResultError                        // 解析失败
 )
 
 // 解析器
 type Parser struct {
-	sync.RWMutex
-	byteBuf          *byte_buf.ByteBuf
-	state            MachineState
-	method           string
-	uri              string
-	version          string
-	headers          map[string][]string
-	contentLength    int
-	contentType      string
-	transferEncoding string
-	bodyStart        int
-	bodyEnd          int
-	key              string
-	chunkSize        int
+	sync.RWMutex                         // 读写锁
+	byteBuf          *byte_buf.ByteBuf   // 缓冲区
+	state            MachineState        // 状态
+	method           string              // 方法
+	uri              string              // URI
+	version          string              // 版本
+	headers          map[string][]string // 请求头
+	contentLength    int                 // 内容长度
+	contentType      string              // 请求内容
+	transferEncoding string              // 传输编码
+	bodyStart        int                 // 请求体开始索引
+	bodyEnd          int                 // 请求体结束索引
+	key              string              // 请求头Key
+	chunkSize        int                 // 块大小
 }
 
-// 工厂方法s
-func New(byteBuf *byte_buf.ByteBuf) *Parser {
-	return &Parser{
-		byteBuf:   byteBuf,
+// 选项
+type Option func(object *Parser)
+
+// ByteBufOption 缓冲区选项
+func ByteBufOption(buf *byte_buf.ByteBuf) Option {
+	return func(object *Parser) {
+		object.byteBuf = buf
+	}
+}
+
+// 工厂方法
+func New(options ...Option) *Parser {
+	object := &Parser{
 		state:     MachineStateMethod,
 		headers:   make(map[string][]string),
 		chunkSize: -1, // 块大小可以为0
 	}
+	return object.Initialize(options...)
+}
+
+// Initialize 初始化
+func (object *Parser) Initialize(options ...Option) *Parser {
+	for _, option := range options {
+		option(object)
+	}
+	return object
 }
 
 // withLock 使用锁
