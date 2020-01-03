@@ -1,4 +1,4 @@
-package buffer
+package byte_buf
 
 import "sync"
 
@@ -16,18 +16,18 @@ type Pool struct {
 func newPool() *Pool {
 	return &Pool{
 		Pool: &sync.Pool{New: func() interface{} {
-			return &Buffer{}
+			return &ByteBuf{}
 		}},
 	}
 }
 
 // Borrow 借缓存
-func (object *Pool) Borrow(capacity int) *Buffer {
-	return object.Get().(*Buffer).Initialize(capacity)
+func (object *Pool) Borrow(options ...ByteBufOption) *ByteBuf {
+	return object.Get().(*ByteBuf).Initialize(options...)
 }
 
 // Return 还缓存
-func (object *Pool) Return(buffer *Buffer) {
+func (object *Pool) Return(buffer *ByteBuf) {
 	object.Pool.Put(buffer)
 }
 

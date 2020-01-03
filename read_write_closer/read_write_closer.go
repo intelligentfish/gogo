@@ -3,7 +3,7 @@ package read_write_closer
 import (
 	"encoding/binary"
 	"errors"
-	"github.com/intelligentfish/gogo/buffer"
+	"github.com/intelligentfish/gogo/byte_buf"
 	"io"
 	"sync/atomic"
 )
@@ -75,10 +75,10 @@ func (object *ReadWriteCloser) Read(maxSize int, callback func(data []byte) bool
 		return
 	}
 	flag := true
-	readBuf := buffer.GetPoolInstance().Borrow(maxSize)
+	readBuf := byte_buf.GetPoolInstance().Borrow(byte_buf.InitCapOption(maxSize))
 	var n int
 	for flag {
-		n, err = object.impl.Read(readBuf.Internal[readBuf.GetWriteIndex():])
+		n, err = object.impl.Read(readBuf.Internal()[readBuf.WriterIndex():])
 		if nil != err {
 			if io.EOF == err {
 				flag = false
@@ -89,15 +89,15 @@ func (object *ReadWriteCloser) Read(maxSize int, callback func(data []byte) bool
 		if 0 >= n {
 			break
 		}
-		readBuf.SetWriteIndex(readBuf.GetWriteIndex() + n)
+		readBuf.SetWriterIndex(readBuf.WriterIndex() + n)
 		for 4 <= readBuf.ReadableBytes() {
-			chunkSize := int(binary.BigEndian.Uint32(readBuf.Slice(4)))
+			chunkSize := int(readBuf.GetUint32())
 			if chunkSize+4 > readBuf.ReadableBytes() {
 				break
 			}
-			readBuf.SetReadIndex(readBuf.GetReadIndex() + 4)
-			flag = callback(readBuf.Slice(chunkSize))
-			readBuf.SetReadIndex(readBuf.GetReadIndex() + chunkSize)
+			readBuf.SetReaderIndex(readBuf.ReaderIndex() + 4)
+			flag = callback(readBuf.Slice(readBuf.ReaderIndex(), chunkSize))
+			readBuf.SetReaderIndex(readBuf.ReaderIndex() + chunkSize)
 			readBuf.DiscardReadBytes()
 			if !flag {
 				break
@@ -107,6 +107,6 @@ func (object *ReadWriteCloser) Read(maxSize int, callback func(data []byte) bool
 	if flag {
 		callback(nil)
 	}
-	buffer.GetPoolInstance().Return(readBuf.DiscardReadBytes())
+	byte_buf.GetPoolInstance().Return(readBuf.DiscardReadBytes())
 	return
 }

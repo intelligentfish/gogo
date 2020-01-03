@@ -7,7 +7,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/app_cfg"
 	"github.com/intelligentfish/gogo/auto_lock"
-	"github.com/intelligentfish/gogo/buffer"
+	"github.com/intelligentfish/gogo/byte_buf"
 	"github.com/intelligentfish/gogo/event"
 	"github.com/intelligentfish/gogo/event_bus"
 	"github.com/intelligentfish/gogo/fix_slice_pool"
@@ -170,9 +170,9 @@ func (object *TCPSession) NeedClose() bool {
 func (object *TCPSession) read() {
 	var n int
 	var err error
-	readBuf := buffer.GetPoolInstance().Borrow(1 << 13)
+	readBuf := byte_buf.GetPoolInstance().Borrow(byte_buf.InitCapOption(1 << 13))
 	for {
-		n, err = object.C.Read(readBuf.Internal[readBuf.GetWriteIndex():])
+		n, err = object.C.Read(readBuf.Internal()[readBuf.WriterIndex():])
 		if nil != err {
 			break
 		}
@@ -186,20 +186,20 @@ func (object *TCPSession) read() {
 		switch object.Mode {
 		// 块模式
 		case TCPSessionModeChunk:
-			readBuf.SetWriteIndex(readBuf.GetWriteIndex() + n)
+			readBuf.SetWriterIndex(readBuf.WriterIndex() + n)
 			for 4 <= readBuf.ReadableBytes() {
-				chunkSize := int(binary.BigEndian.Uint32(readBuf.Slice(4)))
+				chunkSize := int(readBuf.GetUint32())
 				if chunkSize+4 > readBuf.ReadableBytes() {
 					break
 				}
-				readBuf.SetReadIndex(readBuf.GetReadIndex() + 4)
+				readBuf.SetReaderIndex(readBuf.ReaderIndex() + 4)
 				object.WithLock(false,
 					func() {
 						for _, callback := range object.dataCallbackList {
-							callback(object, readBuf.Slice(chunkSize))
+							callback(object, readBuf.Slice(readBuf.ReaderIndex(), chunkSize))
 						}
 					})
-				readBuf.SetReadIndex(readBuf.GetReadIndex() + chunkSize)
+				readBuf.SetReaderIndex(readBuf.ReaderIndex() + chunkSize)
 				readBuf.DiscardReadBytes()
 			}
 		case TCPSessionModeStream:
@@ -207,10 +207,10 @@ func (object *TCPSession) read() {
 			object.WithLock(false,
 				func() {
 					for _, callback := range object.dataCallbackList {
-						callback(object, readBuf.Slice(n))
+						callback(object, readBuf.Slice(readBuf.ReaderIndex(), n))
 					}
 				})
-			readBuf.SetReadIndex(readBuf.GetWriteIndex()).DiscardReadBytes()
+			readBuf.SetReaderIndex(readBuf.WriterIndex()).DiscardReadBytes()
 		}
 	}
 	object.readWG.Done()
@@ -224,7 +224,7 @@ func (object *TCPSession) read() {
 			}
 		})
 	}
-	buffer.GetPoolInstance().Return(readBuf.SetReadIndex(readBuf.GetWriteIndex()).DiscardReadBytes())
+	byte_buf.GetPoolInstance().Return(readBuf.SetReaderIndex(readBuf.WriterIndex()).DiscardReadBytes())
 }
 
 // 写空

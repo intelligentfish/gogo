@@ -1,4 +1,4 @@
-package byte_buffer_pool
+package bytes_buffer_pool
 
 import (
 	"bytes"
