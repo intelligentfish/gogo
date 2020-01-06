@@ -214,6 +214,11 @@ func (object *ByteBuf) DiscardReadBytes() *ByteBuf {
 	return object
 }
 
+// DiscardAllBytes 丢去所有字节
+func (object *ByteBuf) DiscardAllBytes() *ByteBuf {
+	return object.SetReaderIndex(object.WriterIndex()).DiscardReadBytes()
+}
+
 // EnsureWriteable 确定可写
 func (object *ByteBuf) EnsureWriteable(size int) *ByteBuf {
 	newSize := cap(object.buf) - object.wIndex

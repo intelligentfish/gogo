@@ -29,6 +29,7 @@ require (
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	go.etcd.io/bbolt v1.3.3 // indirect
 	go.uber.org/zap v1.13.0 // indirect
+	golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a
 	gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22
 	gopkg.in/yaml.v2 v2.2.7
 	sigs.k8s.io/yaml v1.1.0 // indirect
