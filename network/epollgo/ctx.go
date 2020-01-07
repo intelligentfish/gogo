@@ -2,11 +2,12 @@ package epollgo
 
 import (
 	"context"
+	"net"
+	"sync/atomic"
+
 	"github.com/intelligentfish/gogo/byte_buf"
 	"github.com/intelligentfish/gogo/routine_pool"
 	"golang.org/x/sys/unix"
-	"net"
-	"sync/atomic"
 )
 
 // AcceptEventHook 接受事件钩子
@@ -74,21 +75,17 @@ func CtxWriteEventHookOption(hook WriteEventHook) CtxOption {
 
 // shutdownSocket 关闭socket
 func (object *Ctx) shutdownSocket(read bool) {
-	if read && atomic.CompareAndSwapInt32(&object.readEndFlag, 0, 1) {
+	if read {
 		// 关闭Socket读
 		unix.Shutdown(object.fd, unix.SHUT_RD)
-		// 读写都已关闭，关闭连接
-		if 1 == atomic.LoadInt32(&object.writeEndFlag) {
-			object.Close()
-		}
-	}
-	if !read && atomic.CompareAndSwapInt32(&object.writeEndFlag, 0, 1) {
+	} else {
 		// 关闭Socket写
 		unix.Shutdown(object.fd, unix.SHUT_WR)
-		// 读写都已关闭，关闭连接
-		if 1 == atomic.LoadInt32(&object.readEndFlag) {
-			object.Close()
-		}
+	}
+	// 读写都已关闭，关闭连接
+	if 1 == atomic.LoadInt32(&object.writeEndFlag) &&
+		1 == atomic.LoadInt32(&object.readEndFlag) {
+		object.Close()
 	}
 }
 
@@ -125,10 +122,10 @@ func (object *Ctx) GetPort() int {
 
 // Close 关闭
 func (object *Ctx) Close() {
-	//glog.Infof("Close: (%d,%s:%d)",
-	//	object.eventLoop.id,
-	//	object.GetV4IP(),
-	//	object.GetPort())
+	// glog.Infof("Close: (%d,%s:%d)",
+	// 	object.eventLoop.id,
+	// 	object.GetV4IP(),
+	// 	object.GetPort())
 	object.eventLoop.delFD(object.fd, object.eventIndex)
 }
 
@@ -140,10 +137,10 @@ func (object *Ctx) AcceptEvent(fd int, addr unix.Sockaddr) bool {
 		object.addr.Addr[1],
 		object.addr.Addr[2],
 		object.addr.Addr[3]).To4()
-	//glog.Infof("AcceptEvent: (%d,%s:%d)",
-	//	object.eventLoop.id,
-	//	object.GetV4IP(),
-	//	object.GetPort())
+	// glog.Infof("AcceptEvent: (%d,%s:%d)",
+	// 	object.eventLoop.id,
+	// 	object.GetV4IP(),
+	// 	object.GetPort())
 	if nil != object.acceptEventHook {
 		return object.acceptEventHook()
 	}
