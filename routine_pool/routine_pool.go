@@ -103,21 +103,51 @@ type RoutinePool struct {
 	taskQueueSize   int32              // 任务队列大小
 }
 
+// Option 携程池选项
+type Option func(object *RoutinePool)
+
+// MinPoolSizeOption 最小池大小选项
+func MinPoolSizeOption(poolSize int) Option {
+	return func(object *RoutinePool) {
+		atomic.StoreInt32(&object.minPoolSize, int32(poolSize))
+		atomic.StoreInt32(&object.currentPoolSize, int32(poolSize))
+	}
+}
+
+// MaxPoolSizeOption 最大池大小选项
+func MaxPoolSizeOption(poolSize int) Option {
+	return func(object *RoutinePool) {
+		atomic.StoreInt32(&object.maxPoolSize, int32(poolSize))
+	}
+}
+
 // New 工厂方法
-func New(minPoolSize, maxPoolSize int) *RoutinePool {
+func New(options ...Option) *RoutinePool {
+	defaultPoolSize := int32(16)
 	object := &RoutinePool{
 		stopFlag:        0,
-		currentPoolSize: int32(minPoolSize),
-		minPoolSize:     int32(minPoolSize),
-		maxPoolSize:     int32(maxPoolSize),
+		minPoolSize:     defaultPoolSize,
+		currentPoolSize: defaultPoolSize,
+		maxPoolSize:     math.MaxInt16,
 		taskQueue:       make(chan Runnable, defaultTaskQueueSize),
+	}
+	for _, option := range options {
+		option(object)
 	}
 	if 0 == object.maxPoolSize {
 		object.maxPoolSize = math.MaxInt32
 	}
 	object.ctx, object.cancel = context.WithCancel(context.Background())
-	for i := 0; i < minPoolSize; i++ {
+	for i := 0; i < int(object.minPoolSize); i++ {
 		go object.loop()
+	}
+	return object
+}
+
+// SetOption 设置选项
+func (object *RoutinePool) SetOption(options ...Option) *RoutinePool {
+	for _, option := range options {
+		option(object)
 	}
 	return object
 }
@@ -225,7 +255,8 @@ func (object *RoutinePool) PoolSize() int32 {
 // GetInstance 获取单例
 func GetInstance() *RoutinePool {
 	routinePoolOnce.Do(func() {
-		routinePoolInstance = New(16, 0)
+		routinePoolInstance = New(MinPoolSizeOption(1024),
+			MaxPoolSizeOption(math.MaxInt16))
 	})
 	return routinePoolInstance
 }

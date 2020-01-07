@@ -122,7 +122,9 @@ func (object *EventLoop) addCtx(fd int, /*文件描述符*/
 			return ctx
 		}
 		// 外部策略可控制，拒绝连接
-		object.delFD(fd, 0)
+		ctx.fd = fd
+		ctx.eventIndex = -1
+		object.delFD(ctx)
 	}
 	return nil
 }
@@ -137,14 +139,10 @@ func (object *EventLoop) findCtx(fd int /*文件描述符*/) (ctx *Ctx) {
 	return
 }
 
-// delCtx 删除上下文
-func (object *EventLoop) delCtx(fd int /*文件描述符*/) (ctx *Ctx) {
-	object.ctxMapLock.Lock()
-	if v, ok := object.ctxMap[fd]; ok {
-		ctx = v
-		delete(object.ctxMap, fd)
-	}
-	object.ctxMapLock.Unlock()
+// unsafeDelCtx 非安全删除上下文
+func (object *EventLoop) unsafeDelCtx(ctx *Ctx /*上下文*/) {
+	//glog.Info("unsafeDelCtx: ", ctx.fd, ",", ctx.eventIndex)
+	delete(object.ctxMap, ctx.fd)
 	return
 }
 
@@ -181,13 +179,11 @@ func (object *EventLoop) accept(fd int, /*文件描述符*/
 		return object
 	}
 	// 使fd可读
-	var index int
-	if index, err = object.makeFDReadable(int32(fd), 0, true, true); nil != err {
+	if err = object.makeFDReadable(ctx, true, true); nil != err {
 		glog.Error(err)
 		return object
 	}
 	// 外部保存时间索引，省去遍历查找的开销
-	ctx.eventIndex = index
 	return object
 }
 
@@ -201,26 +197,26 @@ func (object *EventLoop) dispatch(fd int, /*文件描述符*/
 }
 
 // addEvent 添加事件
-func (object *EventLoop) addEvent(fd int32, /*文件描述符*/
-	events uint32 /*事件*/) (index int) {
+func (object *EventLoop) addEvent(ctx *Ctx, /*上下文*/
+	events uint32 /*事件*/) {
 	object.epEventsLock.Lock()
-	i := 0
-	for ; i < len(object.epEvents); i++ {
-		if 0 == object.epEvents[i].Fd {
+	index := 0
+	for ; index < len(object.epEvents); index++ {
+		if 0 == object.epEvents[index].Fd {
 			// 查找空位
 			break
 		}
 	}
-	if i >= len(object.epEvents) {
+	if index >= len(object.epEvents) {
 		// 扩容
 		t := make([]unix.EpollEvent, 2*cap(object.epEvents))
 		copy(t, object.epEvents)
 		object.epEvents = t
 	}
 	// 返回索引
-	index = i
-	object.epEvents[i].Fd = fd         // 填入fd
-	object.epEvents[i].Events = events // 填入事件
+	ctx.eventIndex = index
+	object.epEvents[index].Fd = int32(ctx.fd) // 填入fd
+	object.epEvents[index].Events = events    // 填入事件
 	object.epEventsLock.Unlock()
 
 	// 维护总持有文件描述符数量
@@ -229,29 +225,30 @@ func (object *EventLoop) addEvent(fd int32, /*文件描述符*/
 }
 
 // modEvent 修改事件
-func (object *EventLoop) modEvent(inIndex int, /*事件索引*/
+func (object *EventLoop) modEvent(ctx *Ctx, /*上下文*/
 	events uint32 /*事件*/) {
 	object.epEventsLock.Lock()
-	object.epEvents[inIndex].Events = events
+	object.epEvents[ctx.eventIndex].Events = events
 	object.epEventsLock.Unlock()
 	return
 }
 
-// delEvent 删除事件
-func (object *EventLoop) delEvent(fd int32, /*文件描述符*/
-	index int /*索引*/) *EventLoop {
-	object.epEventsLock.Lock()
-	if 0 != index {
-		object.epEvents[index].Fd = 0
+// unsafeDelEvent 非安全删除事件
+func (object *EventLoop) unsafeDelEvent(ctx *Ctx /*上下文*/) *EventLoop {
+	if -1 == ctx.eventIndex {
+		return object
+	}
+	//glog.Info("unsafeDelEvent: ", ctx.fd, ",", ctx.eventIndex)
+	if 0 != ctx.eventIndex {
+		object.epEvents[ctx.eventIndex].Fd = 0
 	} else {
 		for i := 0; i < len(object.epEvents); i++ {
-			if fd == object.epEvents[i].Fd {
+			if int32(ctx.fd) == object.epEvents[i].Fd {
 				object.epEvents[i].Fd = 0
 				break
 			}
 		}
 	}
-	object.epEventsLock.Unlock()
 	atomic.AddInt32(&object.totalFD, -1)
 	return object
 }
@@ -291,72 +288,69 @@ func (object *EventLoop) makeSocketReusePort(fd int /*文件描述符*/) (err er
 }
 
 // ctlFD 控制FD
-func (object *EventLoop) ctrlFD(fd int32, /*文件描述符*/
-	inIndex int, /*索引*/
+func (object *EventLoop) ctrlFD(ctx *Ctx, /*上下文*/
 	addOrMod bool, /*添加或修改*/
 	events uint32, /*事件*/
-) (outIndex int, err error) {
+) (err error) {
 	e := unix.EpollEvent{
 		Events: events,
-		Fd:     fd,
+		Fd:     int32(ctx.fd),
 	}
 	op := unix.EPOLL_CTL_ADD
 	if !addOrMod {
 		op = unix.EPOLL_CTL_MOD
 	}
 	if addOrMod {
-		outIndex = object.addEvent(fd, e.Events)
+		object.addEvent(ctx, e.Events)
 	} else {
-		object.modEvent(inIndex, e.Events)
-		outIndex = inIndex
+		object.modEvent(ctx, e.Events)
 	}
-	err = unix.EpollCtl(object.epFD, op, int(fd), &e)
+	err = unix.EpollCtl(object.epFD, op, ctx.fd, &e)
 	return
 }
 
 // makeFDReadable 使FD可读
-func (object *EventLoop) makeFDReadable(fd int32, /*文件描述符*/
-	inIndex int, /*索引*/
-	addOrMod /*添加或修改*/, oneShot /*单次生效*/ bool) (outIndex int, err error) {
+func (object *EventLoop) makeFDReadable(ctx *Ctx, /*上下文*/
+	addOrMod /*添加或修改*/, oneShot /*单次生效*/ bool) (err error) {
 	events := uint32(unix.EPOLLET | unix.EPOLLIN)
 	if oneShot {
 		events |= unix.EPOLLONESHOT
 	}
-	outIndex, err = object.ctrlFD(fd, inIndex, addOrMod, events)
+	err = object.ctrlFD(ctx, addOrMod, events)
 	return
 }
 
 // makeFDWriteable 使FD可写
-func (object *EventLoop) makeFDWriteable(fd int32, /*文件描述符*/
-	inIndex int, /*索引*/
-	addOrMod /*添加或修改*/, oneShot /*单次生效*/ bool) (outIndex int, err error) {
+func (object *EventLoop) makeFDWriteable(ctx *Ctx, /*文件描述符*/
+	addOrMod /*添加或修改*/, oneShot /*单次生效*/ bool) (err error) {
 	events := uint32(unix.EPOLLET | unix.EPOLLOUT)
 	if oneShot {
 		events |= unix.EPOLLONESHOT
 	}
-	outIndex, err = object.ctrlFD(fd, inIndex, addOrMod, events)
+	err = object.ctrlFD(ctx, addOrMod, events)
 	return
 }
 
 // makeFDReadWriteable 使FD可写
-func (object *EventLoop) makeFDReadWriteable(fd int32, /*文件描述符*/
-	inIndex int, /*索引*/
-	addOrMod /*添加或修改*/, oneShot /*单次生效*/ bool) (outIndex int, err error) {
+func (object *EventLoop) makeFDReadWriteable(ctx *Ctx, /*上下文*/
+	addOrMod /*添加或修改*/, oneShot /*单次生效*/ bool) (err error) {
 	events := uint32(unix.EPOLLET | unix.EPOLLIN | unix.EPOLLOUT)
 	if oneShot {
 		events |= unix.EPOLLONESHOT
 	}
-	outIndex, err = object.ctrlFD(fd, inIndex, addOrMod, events)
+	err = object.ctrlFD(ctx, addOrMod, events)
 	return
 }
 
 // delFD 删除FD
-func (object *EventLoop) delFD(fd int, /*文件描述符*/
-	index int, /*索引*/
-) (err error) {
-	err = unix.EpollCtl(object.epFD, unix.EPOLL_CTL_DEL, fd, nil)
-	object.delEvent(int32(fd), index)
-	object.delCtx(fd)
+func (object *EventLoop) delFD(ctx *Ctx /*上下文*/) (err error) {
+	err = unix.EpollCtl(object.epFD, unix.EPOLL_CTL_DEL, ctx.fd, nil)
+	object.epEventsLock.Lock()
+	object.ctxMapLock.Lock()
+	object.unsafeDelEvent(ctx)
+	object.unsafeDelCtx(ctx)
+	object.ctxMapLock.Unlock()
+	object.epEventsLock.Unlock()
 	return
 }
 
@@ -371,6 +365,8 @@ func (object *EventLoop) closeAllFD() {
 		}
 		if err = unix.Close(int(object.epEvents[i].Fd)); nil != err {
 			glog.Error(err)
+		} else {
+			object.epEvents[i].Fd = 0
 		}
 	}
 }
@@ -402,7 +398,11 @@ loop:
 					break loop
 				}
 				glog.Errorf("event loop: %d, error event: %d", object.id, e.Events)
-				object.delFD(int(e.Fd), i)
+				ctx := object.findCtx(int(e.Fd))
+				if nil == ctx {
+					panic("bug!!! ctx is nil")
+				}
+				object.delFD(ctx)
 				continue
 			}
 			// 主事件循环
@@ -436,7 +436,11 @@ loop:
 			// 从事件循环
 			if object.isReadEvent(e) {
 				ctx := object.findCtx(int(e.Fd))
-				ctx.ReadEvent()
+				if nil == ctx {
+					panic("bug!!! ctx is nil")
+				} else {
+					ctx.ReadEvent()
+				}
 				continue
 			}
 			if object.isWriteEvent(e) {
@@ -516,10 +520,8 @@ func (object *EventLoop) Listen(port int, /*端口*/
 		return
 	}
 	// 开启Epoll侦听读事件
-	_, err = object.makeFDReadable(int32(object.lnFD),
-		0,
-		true,
-		false)
+	ctx := &Ctx{fd: object.lnFD}
+	err = object.makeFDReadable(ctx, true, false)
 	return
 }
 
@@ -546,10 +548,8 @@ func (object *EventLoop) Start() (err error) {
 		return
 	}
 	// Epoll侦听读事件
-	if _, err = object.makeFDReadable(int32(object.ctrlRPipe),
-		0,
-		true,
-		false); nil != err {
+	ctx := &Ctx{fd: object.ctrlRPipe}
+	if err = object.makeFDReadable(ctx, true, false); nil != err {
 		return
 	}
 	object.wg.Add(2)

@@ -6,6 +6,7 @@ import (
 	"github.com/intelligentfish/gogo/network/epollgo"
 	"net/http"
 	"reflect"
+	"runtime"
 
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/app"
@@ -43,7 +44,7 @@ func main() {
 
 	// 初始化Slave
 	var slaveLoops []*epollgo.EventLoop
-	for i := 0; i < 12; i++ {
+	for i := 0; i < runtime.NumCPU(); i++ {
 		loop, err := epollgo.New()
 		if nil != err {
 			glog.Error(err)
@@ -60,33 +61,51 @@ func main() {
 	// 设置工厂
 	for _, slaveLoop := range slaveLoops {
 		slaveLoop.SetCtxFactory(func(eventLoop *epollgo.EventLoop) *epollgo.Ctx {
-			ctx := epollgo.NewCtx(epollgo.CtxEventLoopOption(eventLoop), epollgo.CtxBufferSizeOption(1<<12))
+			ctx := epollgo.NewCtx(epollgo.CtxEventLoopOption(eventLoop), epollgo.CtxBufferSizeOption(64))
 			ctx.SetOption(epollgo.CtxAcceptEventHookOption(func() bool {
 				//glog.Info("ACCEPT [")
 				//glog.Infof("(%s:%d)", ctx.GetV4IP(), ctx.GetPort())
 				//glog.Info("] ACCEPT")
 				return true
 			})).SetOption(epollgo.CtxReadEventHookOption(func(buf *byte_buf.ByteBuf, err error) {
-				//glog.Info("READ [")
-				//glog.Info(string(buf.Internal()[buf.ReaderIndex():buf.WriterIndex()]))
-				//glog.Info("] READ")
-
 				if nil == err {
-					ctx.Write(buf)
-					return
+					// 有数据
+					if buf.IsReadable() {
+						// 写已关闭
+						if ctx.IsWriteShutdown() {
+							ctx.ShutdownSocket(true)
+						} else {
+							// 写数据
+							ctx.Write(buf)
+						}
+					} else {
+						// 读关闭
+						ctx.ShutdownSocket(true)
+					}
+				} else {
+					// 读关闭
+					glog.Error("read error: ", err)
+					ctx.ShutdownSocket(true)
 				}
-				glog.Error("READ error: ", err)
-				ctx.Close()
 			})).SetOption(epollgo.CtxWriteEventHookOption(func(buf *byte_buf.ByteBuf, err error) {
 				if nil != err {
-					glog.Error("WRITE error: ", err)
-					ctx.Close()
+					glog.Error("write error: ", err)
+					// 关闭写
+					ctx.ShutdownSocket(false)
+					// 退还资源
+					buf.DiscardAllBytes()
+					byte_buf.GetPoolInstance().Return(buf)
 					return
 				}
 				if buf.IsReadable() {
 					ctx.Write(buf)
 				} else {
+					// 读已关闭
+					if ctx.IsReadShutdown() {
+						ctx.ShutdownSocket(false)
+					}
 					// 退还资源
+					buf.DiscardAllBytes()
 					byte_buf.GetPoolInstance().Return(buf)
 				}
 			}))

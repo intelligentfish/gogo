@@ -160,7 +160,7 @@ func (object *ByteBuf) IsReadableBytes(bytes int) bool {
 
 // IsWriteable 是否可写
 func (object *ByteBuf) IsWriteable() bool {
-	return object.maxCap > object.wIndex
+	return cap(object.buf) > object.wIndex
 }
 
 // IsWriteableBytes 是否可写指定大小字节
