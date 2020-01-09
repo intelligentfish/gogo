@@ -15,16 +15,6 @@ var (
 	nextEventLoopID int32 // 下一个事件循环id
 )
 
-// closeAllFD 关闭所有FD
-func closeAllFD(fds []int /*文件描述符数组*/) {
-	var err error
-	for _, fd := range fds {
-		if err = unix.Close(fd); nil != err {
-			glog.Error(err)
-		}
-	}
-}
-
 // CtxFactory Ctx工厂
 type CtxFactory func(eventLoop *EventLoop /*事件循环*/) *Ctx
 
@@ -141,8 +131,12 @@ func (object *EventLoop) findCtx(fd int /*文件描述符*/) (ctx *Ctx) {
 
 // unsafeDelCtx 非安全删除上下文
 func (object *EventLoop) unsafeDelCtx(ctx *Ctx /*上下文*/) {
-	//glog.Info("unsafeDelCtx: ", ctx.fd, ",", ctx.eventIndex)
-	delete(object.ctxMap, ctx.fd)
+	if _, ok := object.ctxMap[ctx.fd]; ok {
+		//glog.Info("unsafeDelCtx: ", ctx.fd, ",", ctx.eventIndex)
+		delete(object.ctxMap, ctx.fd)
+	} else {
+		glog.Errorf("unsafeDelCtx not exists fd: %d", ctx.fd)
+	}
 	return
 }
 
@@ -242,11 +236,15 @@ func (object *EventLoop) unsafeDelEvent(ctx *Ctx /*上下文*/) *EventLoop {
 	if 0 != ctx.eventIndex {
 		object.epEvents[ctx.eventIndex].Fd = 0
 	} else {
-		for i := 0; i < len(object.epEvents); i++ {
+		i := 0
+		for ; i < len(object.epEvents); i++ {
 			if int32(ctx.fd) == object.epEvents[i].Fd {
 				object.epEvents[i].Fd = 0
 				break
 			}
+		}
+		if i >= len(object.epEvents) {
+			glog.Errorf("unsafeDelEvent fd: %d not exists", ctx.fd)
 		}
 	}
 	atomic.AddInt32(&object.totalFD, -1)
@@ -365,20 +363,20 @@ func (object *EventLoop) closeAllFD() {
 		}
 		if err = unix.Close(int(object.epEvents[i].Fd)); nil != err {
 			glog.Error(err)
-		} else {
-			object.epEvents[i].Fd = 0
 		}
+		object.epEvents[i].Fd = 0
 	}
 }
 
-// loop 循环
-func (object *EventLoop) loop() {
+// reactor 反应堆
+func (object *EventLoop) reactor() {
 	defer object.wg.Done()
 
+	var ok = true
 	var n int
 	var err error
 loop:
-	for 0 == atomic.LoadInt32(&object.stopFlag) {
+	for ok {
 		// 等待事件发生
 		if n, err = unix.EpollWait(object.epFD, object.epEvents, -1); nil != err {
 			glog.Error(err)
@@ -388,21 +386,19 @@ loop:
 			e := &object.epEvents[i]
 			// 主动退出信号
 			if int32(object.ctrlRPipe) == e.Fd {
-				glog.Errorf("event loop: %d, notify break loop", object.id)
+				ok = false
 				break loop
 			}
 			// 错误事件
 			if object.isErrorEvent(e) {
 				if int32(object.lnFD) == e.Fd {
-					glog.Errorf("event loop: %d, listen fd error: %d", object.id, e.Events)
+					glog.Errorf("event reactor: %d, listen fd error: %d", object.id, e.Events)
 					break loop
 				}
-				glog.Errorf("event loop: %d, error event: %d", object.id, e.Events)
 				ctx := object.findCtx(int(e.Fd))
-				if nil == ctx {
-					panic("bug!!! ctx is nil")
+				if nil != ctx {
+					object.delFD(ctx)
 				}
-				object.delFD(ctx)
 				continue
 			}
 			// 主事件循环
@@ -415,7 +411,7 @@ loop:
 						fd, addr, err = unix.Accept(object.lnFD)
 						if nil != err {
 							if unix.EAGAIN != err {
-								glog.Errorf("event loop: %d, unix.Accept error: %s", object.id, err)
+								glog.Errorf("event reactor: %d, unix.Accept error: %s", object.id, err)
 							}
 							break
 						}
@@ -437,7 +433,8 @@ loop:
 			if object.isReadEvent(e) {
 				ctx := object.findCtx(int(e.Fd))
 				if nil == ctx {
-					panic("bug!!! ctx is nil")
+					//panic(fmt.Sprintf("read event bug!!!, fd: %d ctx is nil", e.Fd))
+					unix.Close(int(e.Fd))
 				} else {
 					ctx.ReadEvent()
 				}
@@ -445,15 +442,13 @@ loop:
 			}
 			if object.isWriteEvent(e) {
 				// 可写不做任何处理，外部多协程写
-				//	object.makeFDWriteable(e.Fd, false, true)
+				glog.Error("event reactor: %d, write event", object.id)
 				continue
 			}
-			glog.Errorf("event loop: %d, unknown event: %d", object.id, e.Events)
+			glog.Errorf("event reactor: %d, unknown event: %d", object.id, e.Events)
 		}
 	}
-	glog.Infof("event loop: %d loop break", object.id)
 	close(object.acceptParamChan)
-	object.Stop()
 }
 
 // New 工厂方法
@@ -553,7 +548,7 @@ func (object *EventLoop) Start() (err error) {
 		return
 	}
 	object.wg.Add(2)
-	go object.loop()
+	go object.reactor()
 	go object.asyncHandleAccept()
 	return
 }
@@ -566,28 +561,23 @@ func (object *EventLoop) Stop() {
 	// 停止监听
 	var err error
 	if 0 < object.lnFD {
-		glog.Info("close ln fd")
 		if err = unix.Close(object.lnFD); nil != err {
 			glog.Error(err)
 		}
 	}
 	// 终止Epoll循环
 	if 0 < object.ctrlWPipe {
-		glog.Info("write exit to ctrl pipe")
-		if _, err = unix.Write(object.ctrlWPipe, []byte("EXIT")); nil != err {
+		if err = unix.Close(object.ctrlWPipe); nil != err {
 			glog.Error(err)
 		}
-		glog.Info("write exit to ctrl done")
 	}
 	object.wg.Wait()
 	// TODO 等待所有处理完成
 	if !object.isMaster {
-		glog.Info("close all fd")
 		object.closeAllFD()
 	}
-	// 关闭所有文件句柄
-	closeAllFD([]int{
-		object.ctrlWPipe, /*控制写管道*/
-		object.epFD,      /*Epoll文件描述符*/
-	})
+	// 关闭Epoll文件描述符
+	if err = unix.Close(object.epFD); nil != err {
+		glog.Error(err)
+	}
 }

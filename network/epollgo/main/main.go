@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"runtime"
+	"sync/atomic"
 
 	"github.com/golang/glog"
 	"github.com/intelligentfish/gogo/app"
@@ -17,10 +18,20 @@ import (
 	"github.com/intelligentfish/gogo/routine_pool"
 )
 
+const (
+	version = "0.0.0.3"
+)
+
+var (
+	nextCtxID = int32(0)
+)
+
 func main() {
 	flag.Parse()
 	flag.Set("v", "0")
 	flag.Set("logtostderr", "true")
+
+	glog.Info("version: ", version)
 
 	go func() {
 		err := http.ListenAndServe(":10081", nil)
@@ -61,7 +72,9 @@ func main() {
 	// 设置工厂
 	for _, slaveLoop := range slaveLoops {
 		slaveLoop.SetCtxFactory(func(eventLoop *epollgo.EventLoop) *epollgo.Ctx {
-			ctx := epollgo.NewCtx(epollgo.CtxEventLoopOption(eventLoop), epollgo.CtxBufferSizeOption(64))
+			ctx := epollgo.NewCtx(epollgo.CtxIDOption(atomic.AddInt32(&nextCtxID, 1)),
+				epollgo.CtxEventLoopOption(eventLoop),
+				epollgo.CtxBufferSizeOption(64))
 			ctx.SetOption(epollgo.CtxAcceptEventHookOption(func() bool {
 				//glog.Info("ACCEPT [")
 				//glog.Infof("(%s:%d)", ctx.GetV4IP(), ctx.GetPort())
@@ -134,9 +147,9 @@ func main() {
 				param.(*event.AppShutdownEvent).ShutdownPriority {
 				return
 			}
-			glog.Info("stop master loop")
+			//glog.Info("stop master loop")
 			master.Stop()
-			glog.Info("stop all slave loop")
+			//glog.Info("stop all slave loop")
 			for _, slaveLoop := range slaveLoops {
 				slaveLoop.Stop()
 			}

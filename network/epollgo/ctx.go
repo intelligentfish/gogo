@@ -1,9 +1,8 @@
 package epollgo
 
 import (
-	"context"
-	"github.com/intelligentfish/gogo/routine_pool"
 	"net"
+	"sync"
 	"sync/atomic"
 
 	"github.com/intelligentfish/gogo/byte_buf"
@@ -21,6 +20,8 @@ type WriteEventHook func(buf *byte_buf.ByteBuf, err error)
 
 // Ctx 处理器
 type Ctx struct {
+	sync.RWMutex
+	id                int32               // 上下文id
 	eventIndex        int                 // 事件索引
 	eventLoop         *EventLoop          // 关联的事件循环
 	fd                int                 // 文件描述符
@@ -37,6 +38,13 @@ type Ctx struct {
 
 // CtxOption 上下文选项
 type CtxOption func(ctx *Ctx)
+
+// CtxIDOption ID选项
+func CtxIDOption(id int32) CtxOption {
+	return func(ctx *Ctx) {
+		ctx.id = id
+	}
+}
 
 // CtxBufferSizeOption 缓冲区大小选项
 func CtxBufferSizeOption(size int) CtxOption {
@@ -85,6 +93,9 @@ func (object *Ctx) IsWriteShutdown() bool {
 
 // ShutdownSocket 关闭socket
 func (object *Ctx) ShutdownSocket(readOrWrite bool) {
+	object.Lock()
+	defer object.Unlock()
+
 	if readOrWrite && atomic.CompareAndSwapInt32(&object.readShutdownFlag, 0, 1) {
 		// 关闭Socket读
 		unix.Shutdown(object.fd, unix.SHUT_RD)
@@ -118,6 +129,11 @@ func (object *Ctx) SetOption(options ...CtxOption) *Ctx {
 	return object
 }
 
+// GetID 获取ID
+func (object *Ctx) GetID() int32 {
+	return object.id
+}
+
 // GetV4IP 获取IP地址
 func (object *Ctx) GetV4IP() string {
 	return object.v4ip.String()
@@ -130,11 +146,6 @@ func (object *Ctx) GetPort() int {
 
 // Close 关闭
 func (object *Ctx) Close() {
-	// glog.Infof("Close: (%d,%s:%d)",
-	// 	object.eventLoop.id,
-	// 	object.GetV4IP(),
-	// 	object.GetPort())
-
 	object.eventLoop.delFD(object)
 }
 
@@ -147,11 +158,6 @@ func (object *Ctx) AcceptEvent(fd int, addr unix.Sockaddr) bool {
 		object.addr.Addr[2],
 		object.addr.Addr[3]).To4()
 
-	// glog.Infof("AcceptEvent: (%d,%s:%d)",
-	// 	object.eventLoop.id,
-	// 	object.GetV4IP(),
-	// 	object.GetPort())
-
 	if nil != object.acceptEventHook {
 		return object.acceptEventHook()
 	}
@@ -161,8 +167,8 @@ func (object *Ctx) AcceptEvent(fd int, addr unix.Sockaddr) bool {
 // ReadEvent 处理读
 func (object *Ctx) ReadEvent() {
 	// 提交读任务
-	//go func() {
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
+	go func() {
+		//routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 		var n int
 		var err error
 		buf := byte_buf.GetPoolInstance().Borrow(byte_buf.InitCapOption(object.readBufferSize))
@@ -176,7 +182,6 @@ func (object *Ctx) ReadEvent() {
 				break
 			}
 			if 0 == n {
-				//glog.Infof("(%d,%d) read 0 bytes", object.eventLoop.id, object.fd)
 				break
 			}
 			// 设置写索引
@@ -186,8 +191,8 @@ func (object *Ctx) ReadEvent() {
 		}
 		// 回调读事件
 		object.readEventHook(buf, err)
-	}, "CtxRead")
-	//}()
+		//}, "CtxRead")
+	}()
 }
 
 // WriteEvent 处理写
@@ -201,8 +206,8 @@ func (object *Ctx) WriteEvent(buf *byte_buf.ByteBuf, err error) {
 // Write 异步写
 func (object *Ctx) Write(buf *byte_buf.ByteBuf) {
 	// 提交写任务
-	//go func() {
-	routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
+	go func() {
+		//routine_pool.GetInstance().CommitTask(func(ctx context.Context, params []interface{}) {
 		var n int
 		var err error
 		for buf.IsReadable() {
@@ -222,10 +227,6 @@ func (object *Ctx) Write(buf *byte_buf.ByteBuf) {
 		}
 		// 回调事件
 		object.writeEventHook(buf, err)
-	}, "CtxWrite")
-	//}()
+		//}, "CtxWrite")
+	}()
 }
-
-//TODO 需要修复以下Bug
-//1. 客户端全部断开连接后，停止服务器，提示错误的文件描述符
-//2. 可能出出现查找上下文结果为nil的问题
