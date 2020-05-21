@@ -3,8 +3,19 @@ package byte_buf
 import (
 	"encoding/binary"
 	"errors"
+	"io"
 	"math"
 	"unsafe"
+)
+
+const (
+	ByteSize    = 1
+	Int16Size   = 2
+	Int24Size   = 3
+	Int32Size   = 4
+	Int64Size   = 8
+	Float32Size = 4
+	Float64Size = 8
 )
 
 var (
@@ -54,17 +65,11 @@ func New(options ...ByteBufOption) *ByteBuf {
 	return object.Initialize(options...)
 }
 
-// reAlloc 重分配
-func (object *ByteBuf) reAlloc(newCap int) *ByteBuf {
-	if newCap > object.maxCap {
-		panic(BufferTooLarge)
-	}
-	if newCap > len(object.buf) {
-		tmp := make([]byte, newCap)
-		copy(tmp, object.buf)
-		object.buf = tmp
-		object.initCap = newCap
-	}
+// move 移动内存
+func (object *ByteBuf) move() *ByteBuf {
+	copy(object.buf, object.buf[object.rIndex:object.wIndex])
+	object.wIndex -= object.rIndex
+	object.rIndex = 0
 	return object
 }
 
@@ -221,13 +226,36 @@ func (object *ByteBuf) DiscardAllBytes() *ByteBuf {
 
 // EnsureWriteable 确定可写
 func (object *ByteBuf) EnsureWriteable(size int) *ByteBuf {
-	newSize := cap(object.buf) - object.wIndex
-	for object.wIndex+size >= newSize {
-		newSize += cap(object.buf)
-	}
-	if newSize > cap(object.buf)-object.wIndex {
-		//TODO 优化分配
-		object.reAlloc(newSize)
+	// 容量低于4KB时2倍扩容，否则按照当前容量的1/16递增
+	const BK4 = 1 << 12
+	if size > object.WriteableBytes() {
+		readableBytes := object.ReadableBytes()
+		writeableBytes := object.WriteableBytes()
+		if size <= object.rIndex+writeableBytes {
+			object.move()
+		} else {
+			var newCap int
+			remain := size - object.rIndex - writeableBytes
+			if BK4 > object.initCap {
+				newCap = object.initCap * 2
+				for newCap < readableBytes+remain {
+					newCap *= 2
+				}
+			} else {
+				step := object.initCap / 16
+				newCap = object.initCap + step
+				for newCap < readableBytes+remain {
+					newCap += step
+				}
+			}
+
+			buf := make([]byte, newCap)
+			copy(buf, object.buf[object.rIndex:object.wIndex])
+			object.initCap = newCap
+			object.buf = buf
+			object.wIndex -= object.rIndex
+			object.rIndex = 0
+		}
 	}
 	return object
 }
@@ -259,14 +287,14 @@ func (object *ByteBuf) GetUint8() uint8 {
 // GetUint16 获取Uint16
 func (object *ByteBuf) GetUint16() uint16 {
 	v := binary.BigEndian.Uint16(object.buf[object.rIndex:])
-	object.rIndex += 2
+	object.rIndex += Int16Size
 	return v
 }
 
 // GetUint16LE 获取小端Uint16
 func (object *ByteBuf) GetUint16LE() uint16 {
 	v := binary.LittleEndian.Uint16(object.buf[object.rIndex:])
-	object.rIndex += 2
+	object.rIndex += Int16Size
 	return v
 }
 
@@ -275,7 +303,7 @@ func (object *ByteBuf) GetMedium() uint32 {
 	v := uint32(object.buf[object.rIndex+2]) << 16
 	v |= uint32(object.buf[object.rIndex+1]) << 8
 	v |= uint32(object.buf[object.rIndex])
-	object.rIndex += 3
+	object.rIndex += Int24Size
 	return v
 }
 
@@ -284,63 +312,63 @@ func (object *ByteBuf) GetMediumLE() uint32 {
 	v := uint32(object.buf[object.rIndex+2]) << 16
 	v |= uint32(object.buf[object.rIndex+1]) << 8
 	v |= uint32(object.buf[object.rIndex])
-	object.rIndex += 3
+	object.rIndex += Int24Size
 	return v
 }
 
 // GetUint32 获取大端uint32
 func (object *ByteBuf) GetUint32() uint32 {
 	v := binary.BigEndian.Uint32(object.buf[object.rIndex:])
-	object.rIndex += 4
+	object.rIndex += Int32Size
 	return v
 }
 
 // GetUint32LE 获取小端uin32
 func (object *ByteBuf) GetUint32LE() uint32 {
 	v := binary.LittleEndian.Uint32(object.buf[object.rIndex:])
-	object.rIndex += 4
+	object.rIndex += Int32Size
 	return v
 }
 
 // GetUint64 获取大端uint64
 func (object *ByteBuf) GetUint64() uint64 {
 	v := binary.BigEndian.Uint64(object.buf[object.rIndex:])
-	object.rIndex += 8
+	object.rIndex += Int64Size
 	return v
 }
 
 // GetUint64LE 获取小端uint64
 func (object *ByteBuf) GetUint64LE() uint64 {
 	v := binary.LittleEndian.Uint64(object.buf[object.rIndex:])
-	object.rIndex += 8
+	object.rIndex += Int64Size
 	return v
 }
 
 // GetFloat32 获取大端float32
 func (object *ByteBuf) GetFloat32() float32 {
 	v := binary.BigEndian.Uint32(object.buf[object.rIndex:])
-	object.rIndex += 4
+	object.rIndex += Float32Size
 	return math.Float32frombits(v)
 }
 
 // GetFloat32LE 获取小端float32
 func (object *ByteBuf) GetFloat32LE() float32 {
 	v := binary.LittleEndian.Uint32(object.buf[object.rIndex:])
-	object.rIndex += 4
+	object.rIndex += Float32Size
 	return math.Float32frombits(v)
 }
 
 // GetFloat64 获取大端float64
 func (object *ByteBuf) GetFloat64() float64 {
 	v := binary.BigEndian.Uint64(object.buf[object.rIndex:])
-	object.rIndex += 8
+	object.rIndex += Float64Size
 	return math.Float64frombits(v)
 }
 
 // GetFloat64LE 获取小端float64
 func (object *ByteBuf) GetFloat64LE() float64 {
 	v := binary.LittleEndian.Uint64(object.buf[object.rIndex:])
-	object.rIndex += 8
+	object.rIndex += Float64Size
 	return math.Float64frombits(v)
 }
 
@@ -357,7 +385,7 @@ func (object *ByteBuf) GetBytes(length int) []byte {
 
 // WriteBool 写Bool
 func (object *ByteBuf) WriteBool(v bool) *ByteBuf {
-	object.EnsureWriteable(1)
+	object.EnsureWriteable(ByteSize)
 	if v {
 		object.buf[object.wIndex] = 1
 	} else {
@@ -369,7 +397,7 @@ func (object *ByteBuf) WriteBool(v bool) *ByteBuf {
 
 // WriteByte 写字节
 func (object *ByteBuf) WriteByte(v byte) *ByteBuf {
-	object.EnsureWriteable(1)
+	object.EnsureWriteable(ByteSize)
 	object.buf[object.wIndex] = v
 	object.wIndex++
 	return object
@@ -377,7 +405,7 @@ func (object *ByteBuf) WriteByte(v byte) *ByteBuf {
 
 // WriteUint8 写uint8
 func (object *ByteBuf) WriteUint8(v uint8) *ByteBuf {
-	object.EnsureWriteable(1)
+	object.EnsureWriteable(ByteSize)
 	object.buf[object.wIndex] = v
 	object.wIndex++
 	return object
@@ -385,105 +413,105 @@ func (object *ByteBuf) WriteUint8(v uint8) *ByteBuf {
 
 // WriteUint16 写大端uint16
 func (object *ByteBuf) WriteUint16(v uint16) *ByteBuf {
-	object.EnsureWriteable(2)
+	object.EnsureWriteable(Int16Size)
 	binary.BigEndian.PutUint16(object.buf[object.wIndex:], v)
-	object.wIndex += 2
+	object.wIndex += Int16Size
 	return object
 }
 
 // WriteUint16LE 写小端uint16
 func (object *ByteBuf) WriteUint16LE(v uint16) *ByteBuf {
-	object.EnsureWriteable(2)
+	object.EnsureWriteable(Int16Size)
 	binary.LittleEndian.PutUint16(object.buf[object.wIndex:], v)
-	object.wIndex += 2
+	object.wIndex += Int16Size
 	return object
 }
 
 // WriteMedium 写中值
 func (object *ByteBuf) WriteMedium(v int32) *ByteBuf {
-	object.EnsureWriteable(3)
+	object.EnsureWriteable(Int24Size)
 	object.buf[object.wIndex] = byte(v & 0xff)
 	object.buf[object.wIndex+1] = byte((v >> 8) & 0xff)
 	object.buf[object.wIndex+2] = byte((v >> 16) & 0xff)
-	object.wIndex += 3
+	object.wIndex += Int24Size
 	return object
 }
 
 // WriteMediumLE 写小端中值
 func (object *ByteBuf) WriteMediumLE(v int32) *ByteBuf {
-	object.EnsureWriteable(3)
+	object.EnsureWriteable(Int24Size)
 	object.buf[object.wIndex] = byte(v & 0xff)
 	object.buf[object.wIndex+1] = byte((v >> 8) & 0xff)
 	object.buf[object.wIndex+2] = byte((v >> 16) & 0xff)
-	object.wIndex += 3
+	object.wIndex += Int24Size
 	return object
 }
 
 // WriteUint32 写uint32
 func (object *ByteBuf) WriteUint32(v uint32) *ByteBuf {
-	object.EnsureWriteable(4)
+	object.EnsureWriteable(Int32Size)
 	binary.BigEndian.PutUint32(object.buf[object.wIndex:], v)
-	object.wIndex += 4
+	object.wIndex += Int32Size
 	return object
 }
 
 // WriteUint32LE 写小端uint32
 func (object *ByteBuf) WriteUint32LE(v uint32) *ByteBuf {
-	object.EnsureWriteable(4)
+	object.EnsureWriteable(Int32Size)
 	binary.LittleEndian.PutUint32(object.buf[object.wIndex:], v)
-	object.wIndex += 4
+	object.wIndex += Int32Size
 	return object
 }
 
 // WriteUint64 写uint64
 func (object *ByteBuf) WriteUint64(v uint64) *ByteBuf {
-	object.EnsureWriteable(8)
+	object.EnsureWriteable(Int64Size)
 	binary.BigEndian.PutUint64(object.buf[object.wIndex:], v)
-	object.wIndex += 8
+	object.wIndex += Int64Size
 	return object
 }
 
 // WriteUint64LE 写小端uint64
 func (object *ByteBuf) WriteUint64LE(v uint64) *ByteBuf {
-	object.EnsureWriteable(4)
+	object.EnsureWriteable(Int64Size)
 	binary.LittleEndian.PutUint64(object.buf[object.wIndex:], v)
-	object.wIndex += 8
+	object.wIndex += Int64Size
 	return object
 }
 
 // WriteFloat32 写float32
 func (object *ByteBuf) WriteFloat32(v float32) *ByteBuf {
-	object.EnsureWriteable(4)
+	object.EnsureWriteable(Float32Size)
 	uv := *(*uint32)(unsafe.Pointer(&v))
 	binary.BigEndian.PutUint32(object.buf[object.wIndex:], uv)
-	object.wIndex += 4
+	object.wIndex += Float32Size
 	return object
 }
 
 // WriteFloat32LE 写小端float32
 func (object *ByteBuf) WriteFloat32LE(v float32) *ByteBuf {
-	object.EnsureWriteable(4)
+	object.EnsureWriteable(Float32Size)
 	uv := *(*uint32)(unsafe.Pointer(&v))
 	binary.LittleEndian.PutUint32(object.buf[object.wIndex:], uv)
-	object.wIndex += 4
+	object.wIndex += Float32Size
 	return object
 }
 
 // WriteFloat64 写float64
 func (object *ByteBuf) WriteFloat64(v float64) *ByteBuf {
-	object.EnsureWriteable(8)
+	object.EnsureWriteable(Float64Size)
 	uv := *(*uint64)(unsafe.Pointer(&v))
 	binary.BigEndian.PutUint64(object.buf[object.wIndex:], uv)
-	object.wIndex += 8
+	object.wIndex += Float64Size
 	return object
 }
 
 // WriteFloat64LE 写小端float64
 func (object *ByteBuf) WriteFloat64LE(v float64) *ByteBuf {
-	object.EnsureWriteable(8)
+	object.EnsureWriteable(Float64Size)
 	uv := *(*uint64)(unsafe.Pointer(&v))
 	binary.LittleEndian.PutUint64(object.buf[object.wIndex:], uv)
-	object.wIndex += 8
+	object.wIndex += Float64Size
 	return object
 }
 
@@ -538,4 +566,28 @@ func (object *ByteBuf) TakeUntil(v byte, setRIndex bool) []byte {
 		}
 	}
 	return nil
+}
+
+// WithReadBuf
+func (object *ByteBuf) WithReadBuf(callback func(p []byte)) {
+	callback(object.buf[object.rIndex:object.wIndex])
+}
+
+// WithWriteBuf
+func (object *ByteBuf) WithWriteBuf(callback func(p []byte)) {
+	callback(object.buf[object.wIndex:])
+}
+
+// ReadFrom 读取数据
+func (object *ByteBuf) ReadFrom(r io.Reader, growSize int) (n int, err error) {
+	if growSize > object.WriteableBytes() {
+		object.EnsureWriteable(growSize)
+	}
+	object.WithWriteBuf(func(buf []byte) {
+		n, err = r.Read(buf)
+		if 0 < n {
+			object.wIndex += n
+		}
+	})
+	return
 }
