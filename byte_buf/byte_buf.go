@@ -568,13 +568,13 @@ func (object *ByteBuf) TakeUntil(v byte, setRIndex bool) []byte {
 	return nil
 }
 
-// WithReadBuf
-func (object *ByteBuf) WithReadBuf(callback func(p []byte)) {
+// WithReadBuf 获取读缓冲区视图
+func (object *ByteBuf) WithReadBufView(callback func(p []byte)) {
 	callback(object.buf[object.rIndex:object.wIndex])
 }
 
-// WithWriteBuf
-func (object *ByteBuf) WithWriteBuf(callback func(p []byte)) {
+// WithWriteBuf 获取写缓冲区视图
+func (object *ByteBuf) WithWriteBufView(callback func(p []byte)) {
 	callback(object.buf[object.wIndex:])
 }
 
@@ -583,7 +583,7 @@ func (object *ByteBuf) ReadFrom(r io.Reader, growSize int) (n int, err error) {
 	if growSize > object.WriteableBytes() {
 		object.EnsureWriteable(growSize)
 	}
-	object.WithWriteBuf(func(buf []byte) {
+	object.WithWriteBufView(func(buf []byte) {
 		n, err = r.Read(buf)
 		if 0 < n {
 			object.wIndex += n
