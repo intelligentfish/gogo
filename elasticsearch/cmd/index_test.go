@@ -23,11 +23,6 @@ func randomPath() string {
 }
 
 func TestIndex(t *testing.T) {
-	type User struct {
-		Id   int    `json:"id"`
-		Name string `json:"name"`
-		Age  int    `json:"age"`
-	}
 	user := &User{Id: 1, Name: "neo.2", Age: 31}
 	raw, err := json.Marshal(user)
 	if nil != err {

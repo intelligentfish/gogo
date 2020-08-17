@@ -12,7 +12,7 @@ type Health struct {
 	Cluster             string `json:"cluster"`
 	Status              string `json:"status"`
 	NodeTotal           string `json:"node.total"`
-	NodeData            string `json:"node.body"`
+	NodeData            string `json:"node.data"`
 	Shards              string `json:"shards"`
 	Pri                 string `json:"pri"`
 	Relo                string `json:"relo"`

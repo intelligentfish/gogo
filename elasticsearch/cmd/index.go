@@ -8,11 +8,11 @@ import (
 )
 
 // Index index op
-// if request body is nil, check "NoBody" fields
+// if request data is nil, check "NoBody" fields
 // otherwise check others fields
 type Index struct {
-	path                     string `json:"path"`
-	body                     []byte `json:"body"`
+	path                     string
+	data                     []byte
 	NoBodyAcknowledged       bool   `json:"acknowledged"`
 	NoBodyShardsAcknowledged bool   `json:"shards_acknowledged"`
 	NoBodyIndex              string `json:"index"`
@@ -37,8 +37,8 @@ func (object *Index) Uri() string {
 	return fmt.Sprintf("%s?pretty", object.path)
 }
 func (object *Index) SetRequestBody(w io.Writer) (err error) {
-	if nil != object.body {
-		_, err = w.Write(object.body)
+	if nil != object.data {
+		_, err = w.Write(object.data)
 	}
 	return
 }
@@ -50,6 +50,6 @@ func (object *Index) String() string {
 	raw, _ := json.Marshal(object)
 	return string(raw)
 }
-func NewIndex(body string, data []byte) *Index {
-	return &Index{path: body, body: data}
+func NewIndex(path string, data []byte) *Index {
+	return &Index{path: path, data: data}
 }
