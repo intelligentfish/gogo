@@ -2,6 +2,7 @@ package restClient
 
 import "io"
 
+// CMD reset client cmd
 type CMD interface {
 	HTTPMethod() string                          // http method
 	Uri() string                                 // uri

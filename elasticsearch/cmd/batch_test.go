@@ -40,7 +40,7 @@ func TestBatchIndex(t *testing.T) {
 			Data: raw,
 		})
 	}
-	cmd := NewBatch("/users/user", data)
+	cmd := NewBatch("/users/user", data...)
 	err = rc.Do(cmd, 5*time.Second)
 	if nil != err {
 		t.Error(err)

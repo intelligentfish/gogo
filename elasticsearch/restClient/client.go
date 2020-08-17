@@ -13,11 +13,13 @@ const (
 	DefaultPort = 9200
 )
 
+// RestClient rest client
 type RestClient struct {
-	host string
-	port int
+	host string // es host
+	port int    // es port
 }
 
+// Use use options
 func (object *RestClient) Use(options ...Option) *RestClient {
 	for _, option := range options {
 		option(object)
@@ -31,6 +33,7 @@ func (object *RestClient) Use(options ...Option) *RestClient {
 	return object
 }
 
+// Do do command in timeout
 func (object *RestClient) Do(cmd CMD, timeout time.Duration) (err error) {
 	req := fasthttp.AcquireRequest()
 	res := fasthttp.AcquireResponse()
@@ -57,6 +60,7 @@ func (object *RestClient) Do(cmd CMD, timeout time.Duration) (err error) {
 	return
 }
 
+// NewRestClient factory method
 func NewRestClient(options ...Option) *RestClient {
 	object := &RestClient{}
 	return object.Use(options...)

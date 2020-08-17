@@ -7,26 +7,31 @@ import (
 	"net/http"
 )
 
+// BatchOp batch operator
 type BatchOp interface {
-	ToRequestLine() string
+	ToRequestLine() string // convert to request line
 }
 
+// BatchIndex batch index operator
 type BatchIndex struct {
-	Id   int
-	Data json.RawMessage
+	Id   int             // id
+	Data json.RawMessage // raw json
 }
 
+// ToRequestLine convert to request line
 func (object *BatchIndex) ToRequestLine() string {
 	return fmt.Sprintf("{\"index\":{\"_id\":\"%d\"}}\n%s",
 		object.Id,
 		string(object.Data))
 }
 
+// BatchUpdate batch update operator
 type BatchUpdate struct {
-	Id   int
-	Data map[string]interface{}
+	Id   int                    // id
+	Data map[string]interface{} // key value pair
 }
 
+// ToRequestLine convert to request line
 func (object *BatchUpdate) ToRequestLine() string {
 	raw, err := json.Marshal(object.Data)
 	if nil != err {
@@ -37,19 +42,22 @@ func (object *BatchUpdate) ToRequestLine() string {
 		string(raw))
 }
 
+// BatchDelete delete batch operator
 type BatchDelete struct {
-	Id int
+	Id int // id
 }
 
+// ToRequestLine convert to request line
 func (object *BatchDelete) ToRequestLine() string {
 	return fmt.Sprintf("{\"delete\":{\"_id\":\"%d\"}}", object.Id)
 }
 
+// Batch
 type Batch struct {
-	path   string
-	list   []BatchOp
-	Took   int  `json:"took"`
-	Errors bool `json:"errors"`
+	path   string    // request path
+	list   []BatchOp // operator list
+	Took   int       `json:"took"`
+	Errors bool      `json:"errors"`
 	Items  []struct {
 		Index struct {
 			Index   string `json:"_index"`
@@ -69,15 +77,20 @@ type Batch struct {
 	} `json:"items"`
 }
 
+// HTTPMethod http method
 func (object *Batch) HTTPMethod() string {
 	return http.MethodPost
 }
+
+// Uri request uri
 func (object *Batch) Uri() string {
 	if '/' != object.path[len(object.path)-1] {
 		object.path += "/"
 	}
 	return fmt.Sprintf("%s_bulk?pretty", object.path)
 }
+
+// SetRequestBody set request body
 func (object *Batch) SetRequestBody(w io.Writer) (err error) {
 	if nil == object.list {
 		return
@@ -90,14 +103,20 @@ func (object *Batch) SetRequestBody(w io.Writer) (err error) {
 	}
 	return
 }
+
+// ProcessResponseBody process response body
 func (object *Batch) ProcessResponseBody(body []byte) (err error) {
 	err = json.Unmarshal(body, object)
 	return
 }
+
+// String string description
 func (object *Batch) String() string {
 	raw, _ := json.Marshal(object)
 	return string(raw)
 }
-func NewBatch(path string, list []BatchOp) *Batch {
+
+// NewBatch factory method
+func NewBatch(path string, list ...BatchOp) *Batch {
 	return &Batch{path: path, list: list}
 }
